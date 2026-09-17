@@ -127,6 +127,23 @@ git push
 # If there's no upstream, use: git push -u origin HEAD
 ```
 
+## Handling submodules
+
+If the repository tracks git submodules (see `.gitmodules`), they can show up in the parent repo's `git status`/`git diff` in two different ways — always tell them apart before staging:
+
+1. **The submodule itself has uncommitted changes (dirty submodule)** — `git submodule status` prefixes the entry with `+`, and `git status` reports "modified content" or "untracked content". This means the submodule's own working tree has changes that were never committed inside the submodule.
+   - Do not `git add <submodule-path>` directly in the parent repo — this silently rewinds the pointer to the submodule's previous commit, making the change appear to disappear while it actually still sits, uncommitted, inside the submodule.
+   - `cd` into the submodule first and commit (and push) there, following the same Conventional Commits workflow, within the submodule's own history/conventions.
+   - Only after the submodule's commit has been pushed to its own remote should you go back to the parent repo and stage the pointer change.
+
+2. **Only the pointer moved (submodule HEAD changed, working tree clean)** — someone already committed and pushed inside the submodule (or it was updated via `git submodule update --remote`), and the parent repo just needs to record the new commit SHA.
+   - Confirm the submodule's new commit has actually been pushed to its own remote (`git -C <submodule-path> status` shows "up to date"/no unpushed commits) — never point the pointer at a SHA that doesn't exist on the submodule's remote, or others will fail to fetch it after cloning.
+   - Use `git diff --submodule=log -- <submodule-path>` (or a plain `git diff` if `diff.submodule=log` isn't configured) to see which commits are involved, and mention them in the commit body if the range is non-trivial.
+   - Stage and commit the pointer bump as its own logical change, separate from unrelated file changes: `git add <submodule-path>`.
+   - Use a message like `chore: bump <name> submodule` for a single submodule, or `chore: bump <name1>/<name2> submodules` when bumping several at once; add a short parenthetical reason if useful. If the pointer bump is incidental to a larger docs/feature change, it's fine to fold it into that commit's message instead of forcing a separate commit — follow whatever pattern the repo's history already uses.
+
+When a submodule is in the "dirty" state from case 1, avoid `git add -A`/`git add .` — that would stage the pointer while the underlying commit doesn't exist anywhere durable. Stage the submodule path explicitly instead.
+
 ## Best practices
 
 - Each commit should contain exactly one logical change
