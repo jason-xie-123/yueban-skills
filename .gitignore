@@ -1,0 +1,32 @@
+# OS
+.DS_Store
+
+# Editor/agent local config (contains personal permission settings, not checked in)
+.claude/settings.local.json
+.codex/auth.json
+.codex/config.toml
+
+# Local-dev symlinks; skills/ is the source of truth for distribution
+.agents/skills/yueban-doc-authority-audit
+.agents/skills/yueban-doc-md-title-export
+.agents/skills/yueban-docs-format-conversion
+.agents/skills/yueban-english-speaking-practice
+.agents/skills/yueban-git-commit
+.agents/skills/yueban-loop-openspec
+.agents/skills/yueban-spec-roadmap-flow
+.agents/skills/yueban-spec-single-change-flow
+
+# Credentials and sensitive info
+.env
+.env.*
+*.pem
+*.key
+credentials.json
+token.json
+
+# Temp artifacts
+*.tmp
+*.log
+
+# Local git worktrees (isolated workspaces for implementation work)
+.worktrees/

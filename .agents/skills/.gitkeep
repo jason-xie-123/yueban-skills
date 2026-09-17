@@ -1,0 +1,6 @@
+Placeholder so `.agents/skills/` exists right after a fresh clone, before `scripts/link-skills.sh` has
+ever been run — otherwise `.claude/skills`, `.codex/skills`, `.gemini/skills` are dangling symlinks
+(their target directory doesn't exist yet) instead of an empty-but-valid directory.
+
+This file does not replace `scripts/link-skills.sh`: the actual skill symlinks under this directory
+are still gitignored and only created by running that script.
