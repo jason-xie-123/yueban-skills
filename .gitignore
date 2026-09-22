@@ -32,3 +32,5 @@ token.json
 .worktrees/
 .agents/skills/yueban-docs-freshness-audit
 .agents/skills/yueban-docs-prune-historical-comments
+.agents/skills/yueban-git-feature-branch-flow
+.agents/skills/yueban-git-safe-sync
