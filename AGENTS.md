@@ -17,7 +17,7 @@
 
 | Layer | Location | Distribution | Current members |
 |---|---|---|---|
-| Externally distributed skills | `skills/<name>/` | `npx skills add https://github.com/jason-xie-123/yueban-skills.git` | `yueban-doc-authority-audit`, `yueban-doc-md-title-export`, `yueban-docs-format-conversion`, `yueban-english-speaking-practice`, `yueban-git-commit`, `yueban-loop-openspec`, `yueban-spec-roadmap-flow`, `yueban-spec-single-change-flow` |
+| Externally distributed skills | `skills/<name>/` | `npx skills add https://github.com/jason-xie-123/yueban-skills.git` | `yueban-doc-authority-audit`, `yueban-doc-md-title-export`, `yueban-docs-format-conversion`, `yueban-docs-freshness-audit`, `yueban-docs-prune-historical-comments`, `yueban-english-speaking-practice`, `yueban-git-commit`, `yueban-loop-openspec`, `yueban-spec-roadmap-flow`, `yueban-spec-single-change-flow` |
 
 - `.agents/skills/` is this repo's own symlink directory (symlinked to `skills/<name>`, not checked in), letting maintainers edit `skills/` source files in this repo and have them take effect immediately for Claude Code / Codex / Gemini CLI.
 - `.claude/skills`, `.codex/skills`, `.gemini/skills` are all symlinks pointing to `.agents/skills/`.

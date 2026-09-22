@@ -30,3 +30,5 @@ token.json
 
 # Local git worktrees (isolated workspaces for implementation work)
 .worktrees/
+.agents/skills/yueban-docs-freshness-audit
+.agents/skills/yueban-docs-prune-historical-comments
