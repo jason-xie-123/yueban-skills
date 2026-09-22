@@ -97,11 +97,12 @@ done
 # 根仓库自身：和每个 submodule 用完全相同的文件类型规则，不再只看 README/AGENTS.md/docs/
 git ls-files -- "${SRC_EXTS[@]}" \
   | grep -vE '^\.(claude|codex|gemini|agents)/' \
-  | grep -vE '^openspec/'
+  | grep -vE '^openspec/' \
+  | grep -vE '^deprecated/'
 # 如果根仓库有已确认的历史规划归档目录，或版本化数据库迁移目录，在这里加 grep -v 排除掉
 ```
 
-`grep -vE '^\.(claude|codex|gemini|agents)/'`、`grep -vE '^openspec/'` 分别排除「默认排除」清单里的 agent 工具目录和 openspec/ 目录树——根仓库和每个 submodule 都要排，任何一方独立使用 openspec 都可能有这个目录。
+`grep -vE '^\.(claude|codex|gemini|agents)/'`、`grep -vE '^openspec/'` 分别排除「默认排除」清单里的 agent 工具目录和 openspec/ 目录树——根仓库和每个 submodule 都要排，任何一方独立使用 openspec 都可能有这个目录。根仓库这条命令额外加了 `grep -vE '^deprecated/'`：submodule 那边靠 `ACTIVE_SUBMODULES` 天然跳过了以 `deprecated/` 开头的 submodule 条目，但根仓库自己内部如果直接有一个 `deprecated/` 目录（不是 submodule），不加这条会漏排除。
 
 `SRC_EXTS` 里都是不带路径前缀的 glob——git pathspec 里不含 `/` 的 glob 会匹配任意深度的路径，不需要额外拼 `**/*.ext` 之类的双模式。
 
