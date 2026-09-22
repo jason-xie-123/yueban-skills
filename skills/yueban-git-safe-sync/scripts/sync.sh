@@ -226,7 +226,8 @@ cmd_push() {
       return 2
     fi
   else
-    super_ahead="$(git rev-list --count '@{u}..HEAD' 2>/dev/null || echo 0)"
+    echo "BLOCKED: superproject branch '$super_branch' has no origin/$super_branch — first push needs to be done by hand (git push -u origin $super_branch)." >&2
+    return 2
   fi
 
   while IFS= read -r path; do

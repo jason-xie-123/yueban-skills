@@ -182,7 +182,7 @@ cmd_start() {
       ahead="$(echo "$ab" | awk '{print $1}')"
       behind="$(echo "$ab" | awk '{print $2}')"
       if [ "$ahead" -gt 0 ] && [ "$behind" -gt 0 ]; then
-        echo "BLOCKED: $path ($base_branch) has diverged from origin/$base_branch (ahead $ahead, behind $behind). Resolve by hand (see submodule-safe-sync) before branching off it." >&2
+        echo "BLOCKED: $path ($base_branch) has diverged from origin/$base_branch (ahead $ahead, behind $behind). Resolve by hand (see yueban-git-safe-sync) before branching off it." >&2
         blocked=1
         continue
       fi
@@ -277,6 +277,11 @@ cmd_sync() {
   while IFS= read -r path; do
     [ -d "$path" ] || { echo "BLOCKED: $path is not checked out." >&2; blocked=1; continue; }
     branch="$(repo_branch "$path")"
+    if [ -z "$branch" ]; then
+      echo "BLOCKED: $path is in detached HEAD — resolve manually (checkout the intended branch) before syncing." >&2
+      blocked=1
+      continue
+    fi
     repo_fetch_branch "$path" "$change_id"
 
     if [ "$branch" = "$change_id" ]; then
@@ -401,9 +406,16 @@ cmd_finish() {
         fi
       fi
       if ! repo_is_ancestor "$path" "$change_id" "$base"; then
-        echo "BLOCKED: $path's '$change_id' is not merged into local $base yet. Merge it by hand first." >&2
-        blocked=1
-        continue
+        # Local $base may just be stale (e.g. merged upstream via a PR but
+        # never pulled locally) — repo_fetch_branch above already updated
+        # origin/$base, so check that too before blocking.
+        if repo_remote_branch_exists "$path" "$base" && repo_is_ancestor "$path" "$change_id" "origin/$base"; then
+          echo "NOTE: $path's local $base is behind origin/$base and doesn't contain '$change_id' yet, but origin/$base already does — proceeding. Update local $base afterwards (e.g. via yueban-git-safe-sync)."
+        else
+          echo "BLOCKED: $path's '$change_id' is not merged into local $base yet. Merge it by hand first." >&2
+          blocked=1
+          continue
+        fi
       fi
       if [ "$(repo_branch "$path")" = "$change_id" ] && repo_is_dirty "$path"; then
         echo "BLOCKED: $path is currently on '$change_id' with uncommitted changes — cleanup needs to switch it back to '$base' before deleting the branch. Commit or stash first." >&2
