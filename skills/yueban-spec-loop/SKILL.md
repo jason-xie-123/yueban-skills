@@ -188,17 +188,25 @@ git push || git push -u origin HEAD
 ### APPLY
 
 针对 `<change-name>` 调用 `openspec-apply-change` 技能
-（`Skill({skill: "openspec-apply-change"})`），它会逐一处理 `tasks.md` 中未勾选的任务。
+（`Skill({skill: "openspec-apply-change"})`），它会在一次调用里逐一处理完 `tasks.md` 中所有未勾选的任务，处理期间不会把控制权交还给你——也就是说，你没有机会在它执行的过程中、单个任务与任务之间插入提交。
 
-**提交：** 每完成一个任务（或一小组直接相关的任务）后，提交并推送：
+**提交：** `openspec-apply-change` 返回后，检查这次调用实际完成了几个任务：
 
-```bash
-git add -A
-git commit -m "feat(<scope>): implement task N of <change-name>"
-git push || git push -u origin HEAD
-```
+- **通常情况**（它一次性做完了全部剩余任务）：直接为这次 change 的实现提交一次即可，不必为了凑"每个任务一个 commit"而拆分已经一次性完成的工作：
 
-不要等到 change 中的所有任务都完成才做第一次提交。
+  ```bash
+  git add -A
+  git commit -m "feat(<scope>): implement <change-name>"
+  git push || git push -u origin HEAD
+  ```
+
+- **如果任务是分批完成的**（比如 `openspec-apply-change` 中途报错停下、或你自己分成了多次调用）：每完成一批就提交并推送一次，不要攒到最后一批才做第一次提交；commit message 里必须写清这一批具体完成了 `tasks.md` 里的哪几项（任务编号或简短描述），不要每批都用一模一样的消息——VERIFY 步骤要靠 commit message 反推"这次 change 实际做了什么"，消息不带批次信息会让它没法区分：
+
+  ```bash
+  git add -A
+  git commit -m "feat(<scope>): implement <change-name> (tasks 1-2 of N)"
+  git push || git push -u origin HEAD
+  ```
 
 ### VERIFY
 
@@ -212,9 +220,13 @@ OpenSpec 配置已切换到 `profile: custom` 并在 `workflows` 中加入了 `v
 Verify the OpenSpec change "<change-name>" at openspec/changes/<change-name>/ against its own
 artifacts. Read proposal.md, the spec deltas, design.md, and tasks.md in that folder. Your working directory is already the project root. Then look at git log / git diff for the commits
 made for this change to see what was actually implemented — those commits follow the pattern
-"docs: propose <change-name>", "feat(<scope>): implement task N of <change-name>", and
-"fix(<scope>): address verifier feedback on <change-name>". If the project has a test suite or build
-command, run it.
+"docs: propose <change-name>", "feat(<scope>): implement <change-name>" (the normal case — one
+commit covering everything openspec-apply-change did in a single pass) or
+"feat(<scope>): implement <change-name> (tasks N-M of K)" (the batched case — multiple commits,
+each covering only the tasks it names), and "fix(<scope>): address verifier feedback on
+<change-name>". Don't assume every task has its own commit — reconstruct what was actually done
+from however many commits exist and what each one's message says it covers. If the project has a
+test suite or build command, run it.
 
 Report every issue you find, each tagged CRITICAL, WARNING, or SUGGESTION:
 - CRITICAL: a task checked off in tasks.md that wasn't actually done, a spec requirement that isn't
