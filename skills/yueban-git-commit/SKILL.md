@@ -1,6 +1,6 @@
 ---
 name: yueban-git-commit
-description: 'Perform a git commit following Conventional Commits, with commit message analysis, smart staging, and message generation. Use when the user asks to commit code, create a commit, or mentions "/commit". Supports: (1) auto-detecting type and scope from the diff, (2) generating a conventional commit message from the diff, (3) interactive commits (overriding type/scope/description), (4) smart staging by logical grouping, (5) automatically pushing to the remote after commit.'
+description: 'Perform a git commit following Conventional Commits, with commit message analysis, smart staging, and message generation. Use when the user asks to commit code, create a commit, or mentions "/commit". Supports: (1) auto-detecting type and scope from the diff, (2) generating a conventional commit message from the diff, (3) interactive commits (overriding type/scope/description), (4) smart staging by logical grouping, (5) pushing to the remote after commit, once confirmed (skip asking only if the user''s request already implied pushing).'
 allowed-tools: Bash
 ---
 
@@ -120,7 +120,7 @@ EOF
 
 ### 5. Push to the remote
 
-After the commit succeeds, automatically push the local changes to the remote repository. If the current branch has no upstream set, set it automatically.
+Pushing is a side-effecting action visible to others — confirm with the user before doing it, the same way `yueban-git-safe-sync`/`yueban-git-feature-branch-flow` require confirmation before their own push steps. Skip asking only when the user's own request already implied it (e.g. "commit and push this", "commit, then push to origin"). After the commit succeeds (and, unless already implied, after the user confirms), push:
 
 ```bash
 git push
