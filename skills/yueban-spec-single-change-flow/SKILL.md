@@ -156,7 +156,7 @@ EOF
 
 - **archive 时容易漏删旧目录 / 漏同步新 spec**：`git status` 确认 `mv` 后的新旧路径都被正确 add/remove，不能只信 `openspec archive` 命令的输出。
 - **Workflow 返回的 `unresolvedBlockers` 字段**：撞到 MAX_ROUNDS 仍未收敛时，检查这个字段（最后一轮里 severity=blocker 的 issue）——非空就不要直接进入第二步实施，先向用户说明还有哪些 blocker 级的文档问题没解决，blocker 通常意味着任务拆分本身不可执行，带着它去实施大概率会卡住或做错方向；只有 major/minor 级别的剩余问题可以酌情带着已知缺口继续。
-- **Workflow 返回的 `unresolvedValidateFailure` 字段**：即便 `unresolvedBlockers` 为空、语义层面的 issue 都收敛了，如果这个字段为 `true`，说明最后一轮 `openspec validate` 修复重试一次后仍未通过——同样不要直接进入第二步实施，先向用户说明具体的 validate 报错（在 `roundLog` 最后一项的 `validateOutput` 里），不能假设"issue 数 = 0"就等于文档没问题。
+- **Workflow 返回的 `unresolvedValidateFailure` 字段**：最后一轮 issue 数 > 0（validate 因此实际跑过）却没能拿到明确的通过结果时，这个字段为 `true`——既包括"`openspec validate` 修复重试一次后仍未通过"，也包括"validate 这个 agent 调用本身失败，没能拿到结果"这两种情况，两者都不能默认"应该是没问题"。为 `true` 时同样不要直接进入第二步实施，先向用户说明具体情况（validate 报错在 `roundLog` 最后一项的 `validateOutput` 里；agent 调用失败则没有 `validateOutput`，需要向用户说明是哪一步的调用没拿到结果），不能假设"issue 数 = 0"就等于文档没问题。
 - **第一步的修复 agent 越权碰其他文件**：模板的修复 agent prompt 已经明确限定只改 `proposal.md`/`design.md`/`tasks.md`/`specs/**/*.md`，如果发现某次修复实际改动了这 4 类文档之外的任何文件（`git status` 能看出来），说明 agent 没有遵守边界，需要人工核实这些改动是否合理，不能默认它是对的。
 - **`openspec-apply-change` 报告 `all_done` 不等于真的全部完成**：第二步末尾用 `grep -c "^\- \[ \]" tasks.md` 交叉核实，不要只信它自己的进度汇报。
 - **workflow 里某个 agent 因 API 错误重试耗尽失败（`StructuredOutput retry cap exceeded`）不等于整轮作废**：其余并行 agent 的结果仍然有效，通常不影响该轮结论；但如果同一 change 反复在同一个 agent 上失败，要向用户报告而不是无限重试。

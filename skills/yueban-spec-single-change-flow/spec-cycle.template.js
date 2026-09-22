@@ -186,10 +186,14 @@ for (let round = 1; round <= MAX_ROUNDS; round++) {
 const finalRound = roundLog.length > 0 ? roundLog[roundLog.length - 1] : null
 const fullyConverged = finalRound ? finalRound.issueCount === 0 : true
 const unresolvedBlockers = finalRound ? finalRound.issues.filter((it) => it.severity === 'blocker') : []
-// 即便语义层面的 issue 都收敛了，如果最后一轮的 openspec validate 复检仍未通过（修一次仍失败），
-// 视为独立于 unresolvedBlockers 的另一类未解决问题——调用方同样应该停下来问用户，不能直接进入
-// 第二步实施（带着 CLI 校验都过不了的 spec 文档去实施，大概率第三步 archive 时会再次卡住）。
-const unresolvedValidateFailure = finalRound && finalRound.validatePassed === false
+// validate 只在该轮 issueCount > 0 时才会运行（见上方循环里的 `if (issues.length > 0)`）；
+// issueCount === 0 的收敛轮次里 validatePassed 本来就是 null，因为根本没有 validate 可跑，
+// 这不是失败，不能计入 unresolvedValidateFailure（否则最常见的"零问题收敛"成功路径会被
+// 每次误判成未解决）。只有 issueCount > 0 却仍拿不到确定的 `true` 时才算未解决——这既覆盖了
+// "复检后仍未通过"（validatePassed === false，文档原有语义），也覆盖了"validate 这个 agent
+// 调用本身失败、resolve 成了 null"（见 ../SKILL.md 的"已知坑"一节）：后者此前会被 `=== false`
+// 的写法误判成"没有失败"，因为 null !== false，但它同样是"从未真正确认通过"，必须一并当成未解决。
+const unresolvedValidateFailure = !!(finalRound && finalRound.issueCount > 0 && finalRound.validatePassed !== true)
 
 return {
   change: CHANGE,
