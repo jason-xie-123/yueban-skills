@@ -1,6 +1,6 @@
 ---
 name: yueban-docs-freshness-audit
-description: '检查 AGENTS.md/README.md/spec.md/业务文档是否过时：悬空引用、状态/自相矛盾、链接失效、跨文档不一致、openspec 状态不一致（若项目使用 openspec）、权威性冲突未标注、索引覆盖缺口、遗漏的新增基础设施、命令/路径不可执行、重复内容、历史叙事残留，发现问题直接改文件。范围按规则动态发现、不硬编码具体文件名单：根 AGENTS.md/README.md、docs/ 目录下全部 .md 文档、每个当前维护 submodule（从 .gitmodules 里排除 deprecated/ 前缀的条目动态取得，具体有哪些以 .gitmodules 当前内容为准）各自的 AGENTS.md/README.md 与 docs/ 子目录、.agents/skills/*/SKILL.md（仓库里全部 skill）、项目若使用 openspec 则包含 openspec/specs 下全部 spec.md。明确排除：deprecated/ 整个目录树（历史/冻结子仓库）、项目里明确标注为历史功能规划/历史归档的文档目录（具体路径按项目约定，执行前先确认，不要凭空猜）、openspec/changes/ 整个目录（若存在，含未归档与 archive/，是某次具体 change 的过程性文档，不是需要长期维持时效性的产品文档）。docs/、submodule docs/ 下的产品/业务资料判断需格外谨慎（若该目录下有项目自己的 AGENTS.md，先读一遍再处理），见「范围」一节说明。**仅手动触发**：只有用户明确输入 `/yueban-docs-freshness-audit`，或明确点名要用这个 skill 时才执行；用户说"检查一下文档""看看文档是不是过时了"这类泛化表述不要自作主张联想到这里，先按普通请求处理或直接追问，除非用户点名。'
+description: '检查 AGENTS.md/README.md/spec.md/业务文档是否过时：悬空引用、状态/自相矛盾、链接失效、跨文档不一致、openspec 状态不一致（若项目使用 openspec）、权威性冲突未标注、索引覆盖缺口、遗漏的新增基础设施、命令/路径不可执行、重复内容、历史叙事残留，发现问题直接改文件。范围按规则动态发现、不硬编码具体文件名单：根 AGENTS.md/README.md、docs/ 目录下全部 .md 文档、每个当前维护 submodule（从 .gitmodules 里排除 deprecated/ 前缀的条目动态取得，具体有哪些以 .gitmodules 当前内容为准）各自的 AGENTS.md/README.md 与 docs/ 子目录、skills/*/SKILL.md（或技能安装目录 .claude/skills/、.agents/skills/，视项目布局而定；仓库里全部 skill）、项目若使用 openspec 则包含 openspec/specs 下全部 spec.md。明确排除：deprecated/ 整个目录树（历史/冻结子仓库）、项目里明确标注为历史功能规划/历史归档的文档目录（具体路径按项目约定，执行前先确认，不要凭空猜）、openspec/changes/ 整个目录（若存在，含未归档与 archive/，是某次具体 change 的过程性文档，不是需要长期维持时效性的产品文档）。docs/、submodule docs/ 下的产品/业务资料判断需格外谨慎（若该目录下有项目自己的 AGENTS.md，先读一遍再处理），见「范围」一节说明。**仅手动触发**：只有用户明确输入 `/yueban-docs-freshness-audit`，或明确点名要用这个 skill 时才执行；用户说"检查一下文档""看看文档是不是过时了"这类泛化表述不要自作主张联想到这里，先按普通请求处理或直接追问，除非用户点名。'
 allowed-tools: Bash, Read, Edit, Grep, Glob, Agent, WebFetch
 ---
 
@@ -19,7 +19,7 @@ allowed-tools: Bash, Read, Edit, Grep, Glob, Agent, WebFetch
 - **每个当前维护的 submodule**——动态来源是 `.gitmodules` 里路径不以 `deprecated/` 开头的条目（具体有哪些以 `.gitmodules` 当前内容为准，新增/移除 submodule 会自动跟着变，不需要改本文件）：
   - 各自的 `AGENTS.md`/`README.md`
   - 各自 `docs/` 子目录下全部 `.md` 文件（如果该 submodule 没有 `docs/` 目录，跳过即可，不算遗漏）——内容性质与上面「处理 `docs/` 下 PRD/背景知识类业务文档时额外谨慎」一致，同样要谨慎判断
-- **`.agents/skills/*/SKILL.md`**：仓库里当前存在的全部 skill，不挑名单。
+- **`skills/*/SKILL.md`**（或技能安装目录 `.claude/skills/`、`.agents/skills/`，视项目布局而定）：仓库里当前存在的全部 skill，不挑名单。
 - **若项目使用 openspec 管理变更**：`openspec/specs/**/spec.md`（跑前用 `find openspec/specs -name spec.md` 重新枚举，不要硬编码具体数量——capability 会新增）。项目没有 `openspec/` 目录就跳过这一项，不算遗漏。
 
 **明确排除**（这几类是历史/过程性内容，不是需要长期维持时效性的产品文档，理由各不相同、分别判断，不要因为都叫"排除"就混为一谈）：
@@ -66,8 +66,16 @@ for sm in "${ACTIVE_SUBMODULES[@]}"; do
   git -C "$sm" ls-files 'docs/*.md' 'docs/**/*.md' 2>/dev/null | sed "s#^#$sm/#"
 done
 
-# 仓库里全部 skill 的 SKILL.md，不挑名单
-git ls-files '.agents/skills/*/SKILL.md'
+# 仓库里全部 skill 的 SKILL.md，不挑名单。优先看 skills/<name>/SKILL.md
+# （本仓库这类"技能源仓库"自己的约定，权威来源）；不存在就退回 .claude/skills/
+# 或 .agents/skills/（技能安装到目标项目后的常见位置）。用 find 而不是 git
+# ls-files——后两个目录里常见的是本地 symlink（比如本仓库自己开发期用的那种
+# 约定，未纳入 git 追踪），git ls-files 只列已追踪文件，会静默枚举出 0 个 skill。
+if [ -d skills ]; then
+  find skills -mindepth 2 -maxdepth 2 -name SKILL.md | sort
+else
+  find .claude/skills .agents/skills -mindepth 2 -maxdepth 2 -name SKILL.md 2>/dev/null | sort -u
+fi
 
 # 若项目使用 openspec：当前生效的 spec
 [ -d openspec/specs ] && find openspec/specs -name spec.md | sort
@@ -88,7 +96,7 @@ git ls-files '.agents/skills/*/SKILL.md'
 - 组 B2：`docs/` 下的业务/PRD 类子目录（按实际存在的子目录划分，不含已确认排除的历史归档目录；每组子任务 prompt 里必须附上「范围」一节里"处理 `docs/` 下 PRD/背景知识类业务文档时额外谨慎"那段原文，并强调拿不准一律不改、记入存疑）
 - 组 B3：每个当前维护 submodule 各自 `docs/` 子目录下全部 `.md` 文件（有几个 submodule 存在 `docs/` 就分几组，或体量小时合并成一个 agent；同样附上「处理 `docs/` 下 PRD/背景知识类业务文档时额外谨慎」那段原文）
 - 组 C：**全部**当前维护 submodule 各自的 `AGENTS.md`/`README.md`，一起给同一个 agent（不管当前有几个 submodule，都放一组，因为「跨文档一致性」维度需要它们互相对照，拆开反而看不到全貌）
-- 组 D：`.agents/skills/*/SKILL.md`（仓库里全部 skill）——数量不固定，体量大时（比如超过 8~10 个）按体量切成 2~3 组保证并行，体量小就一组
+- 组 D：`skills/*/SKILL.md`（或对应的技能安装目录，见第 1 步枚举命令；仓库里全部 skill）——数量不固定，体量大时（比如超过 8~10 个）按体量切成 2~3 组保证并行，体量小就一组
 - 组 E（若项目使用 openspec）：`openspec/specs/**/spec.md`
 
 每个子任务 prompt 必须完整包含本文件"十一个检查维度"整节原文内容（把文字直接粘贴过去，不要只给文件路径——子 agent 是全新上下文，看不到这个 SKILL.md），并附上该组的具体文件路径列表、以及下面这段执行方式说明：
@@ -139,6 +147,8 @@ git ls-files '.agents/skills/*/SKILL.md'
 
 检查范围有交集——各当前维护 submodule 各自的 `AGENTS.md`/`README.md`（以及各自的 `docs/` 子目录），根仓库自身 `AGENTS.md`/`README.md`/`docs/`，维度 11（历史叙事残留）与该 skill 职责重叠。本 skill 独立处理这一维度，不调用/依赖 `yueban-docs-prune-historical-comments`，接受两边逻辑并存的重复。两边对"历史规划归档目录"的排除理由一致（历史规划产物，非产品权威资料）。
 
+两边排除规则有一处不对称，分别按各自定义判断，不要假设一致：`yueban-docs-prune-historical-comments` 对 `deprecated/` 模块多了一条例外——如果该模块被其它文档明确依赖用来做同步比对，则不适用它的清理逻辑（因为它要删的"历史叙事"正是那类同步流程依赖的信息）；本 skill 对 `deprecated/` 的排除没有这条例外（本 skill 本来就不检查 `deprecated/` 下任何文档的时效性，不存在"是否依赖它做比对"这层考量）。
+
 项目里如果还有其它专门生成/维护某份具体文档内容的 skill（比如某个自动生成 schema 文档字段说明的工具），本 skill 只检查文档级维度（链接、索引覆盖、跨文档一致性等），不涉及该文档的领域字段语义本身，两者不冲突——遇到这种情况按此原则判断即可，不需要为每个项目专属 skill 单独列关系说明。
 
 ## 不做的事
@@ -149,4 +159,3 @@ git ls-files '.agents/skills/*/SKILL.md'
 - 不自动创建 git commit。是否提交、何时提交由用户决定，遵循仓库自己 `AGENTS.md`「提交约定」（仅在用户明确要求时才创建 git commit）。
 - 不实际执行需要真实生产/预发布凭据、或连接真实外部数据库/云服务的命令。
 - 不额外写报告文件——摘要直接打印在回复里。
-</content>

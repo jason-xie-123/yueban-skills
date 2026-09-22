@@ -6,6 +6,8 @@ allowed-tools: Bash, Read, Edit, Grep, Glob, Agent, AskUserQuestion
 
 # yueban-docs-prune-historical-comments：清理历史变更叙事类注释/文档段落
 
+> ⚠️ **仅显式触发**：只有用户明确输入 `/yueban-docs-prune-historical-comments`、明确点名要用这个 skill，或用户直接说这类历史变更叙事类注释没必要时才执行下面的流程。
+
 ## 范围（发现方式与排除规则与 `yueban-docs-freshness-audit` 对齐，覆盖的文件类型不同）
 
 不要在这个文件里手写"仓库里现在有哪些 submodule"这种会随项目演进而过期的清单，每次执行都从 `.gitmodules` 动态取得（命令见第 2 步）。项目专属的细节（比如"哪个目录是历史规划归档、不算当前产品文档""某个冻结模块为什么被排除"）当场问用户或从项目自己的 AGENTS.md/README.md 里找依据，不要凭经验/凭上次执行的记忆假设。
@@ -124,4 +126,3 @@ git ls-files -- README.md AGENTS.md 'docs/*.md' 'docs/**/*.md'
 - 不生成候选清单等待二次确认。
 - 不对源码注释做"保留关键信息、改写成正常注释"的处理——按上面的规则整块删除。
 - 不自动 commit。是否提交、何时提交由用户决定，遵循仓库自己 `AGENTS.md`「提交约定」（仅在用户明确要求时才创建 git commit）。
-</content>
