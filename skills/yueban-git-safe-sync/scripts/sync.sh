@@ -57,6 +57,17 @@ sm_ahead_behind() {
   git -C "$path" rev-list --left-right --count "origin/$branch...HEAD" 2>/dev/null | awk '{print $2, $1}'
 }
 
+# Runs "$@"; on failure, prints "FAILED: <context>" to stderr and returns 1
+# (caller does `run_step "..." cmd... || return 2`). On success, returns 0.
+# Centralizes the "check the mutating command's exit code, don't silently
+# swallow a failure and report success anyway" pattern used throughout.
+run_step() {
+  local context="$1"; shift
+  "$@" && return 0
+  echo "FAILED: ${context}" >&2
+  return 1
+}
+
 # --- status --------------------------------------------------------------
 
 cmd_status() {
@@ -97,6 +108,31 @@ cmd_pull() {
   # submodule's own dirty/detached/diverged state is checked separately below.
   if [ -n "$(git status --porcelain --ignore-submodules=all 2>/dev/null)" ]; then
     echo "BLOCKED: superproject working tree has uncommitted changes outside submodules. Commit or stash first." >&2
+    return 2
+  fi
+
+  # The superproject itself gets the same divergence check submodules get
+  # below — otherwise a fast-forward here could silently diverge (or worse,
+  # leave an unresolved conflict) instead of stopping. This reuses the fetch
+  # that sm_ahead_behind already does; the actual pull further down then
+  # fast-forwards directly off that already-fetched ref instead of calling
+  # `git pull` (which would fetch a second time and depend on the user's
+  # local pull.rebase/merge config instead of a deterministic ff-only).
+  local super_branch
+  super_branch="$(sm_branch ".")"
+  if [ -z "$super_branch" ]; then
+    echo "BLOCKED: superproject is in detached HEAD. Resolve manually first (checkout the intended branch)." >&2
+    return 2
+  fi
+  local super_ab super_ahead super_behind
+  if ! super_ab="$(sm_ahead_behind "." "$super_branch")"; then
+    echo "BLOCKED: superproject branch '$super_branch' has no origin/$super_branch to compare against." >&2
+    return 2
+  fi
+  super_ahead="$(echo "$super_ab" | awk '{print $1}')"
+  super_behind="$(echo "$super_ab" | awk '{print $2}')"
+  if [ "$super_ahead" -gt 0 ] && [ "$super_behind" -gt 0 ]; then
+    echo "BLOCKED: superproject ($super_branch) has diverged from origin/$super_branch (ahead $super_ahead, behind $super_behind). Merge/rebase decision needed — resolve by hand." >&2
     return 2
   fi
 
@@ -141,13 +177,19 @@ cmd_pull() {
   fi
 
   echo "Pulling superproject (top-level refs only, submodules handled separately)..."
-  git pull --no-recurse-submodules
+  if [ "$super_behind" -gt 0 ]; then
+    run_step "superproject fast-forward of $super_branch to origin/$super_branch failed unexpectedly (see output above — e.g. a conflict). Nothing else was touched; resolve the superproject by hand before re-running." \
+      git merge --ff-only "origin/$super_branch" || return 2
+  else
+    echo "Already up to date."
+  fi
 
   local i
   for i in "${!paths[@]}"; do
     path="${paths[$i]}"; branch="${branches[$i]}"
     echo "-- $path: fast-forwarding $branch to origin/$branch --"
-    git -C "$path" merge --ff-only "origin/$branch"
+    run_step "$path: fast-forward of $branch failed unexpectedly. The superproject was already pulled; resolve $path by hand, then re-run." \
+      git -C "$path" merge --ff-only "origin/$branch" || return 2
   done
 
   echo
@@ -221,15 +263,19 @@ cmd_push() {
   fi
 
   local i
+  local -a pushed_paths=()
   for i in "${!push_paths[@]}"; do
     path="${push_paths[$i]}"; branch="${push_branches[$i]}"
     echo "-- pushing $path ($branch) --"
-    git -C "$path" push origin "HEAD:refs/heads/$branch"
+    run_step "$path: push to origin/$branch failed. Stopping — already pushed: ${pushed_paths[*]:-<none>}. The superproject was NOT pushed. Resolve $path by hand, then re-run." \
+      git -C "$path" push origin "HEAD:refs/heads/$branch" || return 2
+    pushed_paths+=("$path")
   done
 
   if [ "$super_ahead" -gt 0 ]; then
     echo "-- pushing superproject --"
-    git push
+    run_step "superproject push failed. All submodule commits above were already pushed to their own remotes; resolve the superproject by hand, then re-run (the submodule pushes will just report 'up to date')." \
+      git push || return 2
   fi
 
   echo

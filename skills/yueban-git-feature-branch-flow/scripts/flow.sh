@@ -98,6 +98,17 @@ require_change_id() {
   fi
 }
 
+# Runs "$@"; on failure, prints "FAILED: <context>" to stderr and returns 1
+# (caller does `run_step "..." cmd... || return 2`). On success, returns 0.
+# Centralizes the "check the mutating command's exit code, don't silently
+# swallow a failure and report success anyway" pattern used throughout.
+run_step() {
+  local context="$1"; shift
+  "$@" && return 0
+  echo "FAILED: ${context}" >&2
+  return 1
+}
+
 # --- branches --------------------------------------------------------------
 
 cmd_branches() {
@@ -189,19 +200,23 @@ cmd_start() {
   fi
 
   local i
+  local -a done_paths=()
   for i in "${!act_paths[@]}"; do
     path="${act_paths[$i]}"
     if [ "${act_ff[$i]}" -gt 0 ]; then
       echo "-- $path: fast-forwarding $base_branch to origin/$base_branch --"
-      git -C "$path" merge --ff-only "origin/$base_branch"
+      run_step "$path: fast-forward of $base_branch failed unexpectedly. Stopping — already done: ${done_paths[*]:-<none>}. Resolve $path by hand, then re-run for the remaining repos." \
+        git -C "$path" merge --ff-only "origin/$base_branch" || return 2
     fi
     echo "-- $path: creating '$change_id' from $base_branch --"
-    git -C "$path" checkout -b "$change_id"
+    run_step "$path: 'git checkout -b $change_id' failed unexpectedly (e.g. an invalid branch name?). Stopping — already done: ${done_paths[*]:-<none>}. Resolve $path by hand, then re-run for the remaining repos." \
+      git -C "$path" checkout -b "$change_id" || return 2
     repo_set_base "$path" "$change_id" "$base_branch"
+    done_paths+=("$path")
   done
 
   echo
-  echo "Done. '$change_id' (base: $base_branch) is now checked out in: ${act_paths[*]:-<none>}${skip_paths[*]:+ (already on it: ${skip_paths[*]})}"
+  echo "Done. '$change_id' (base: $base_branch) is now checked out in: ${done_paths[*]:-<none>}${skip_paths[*]:+ (already on it: ${skip_paths[*]})}"
 }
 
 # --- pending -----------------------------------------------------------
@@ -328,17 +343,20 @@ cmd_sync() {
     case "$mode" in
       checkout)
         echo "-- $path: checkout existing local '$change_id' --"
-        git -C "$path" checkout "$change_id"
+        run_step "$path: 'git checkout $change_id' failed unexpectedly. Stopping — resolve $path by hand, then re-run." \
+          git -C "$path" checkout "$change_id" || return 2
         ;;
       track)
         echo "-- $path: checkout '$change_id' tracking origin/$change_id --"
-        git -C "$path" checkout -b "$change_id" --track "origin/$change_id"
+        run_step "$path: 'git checkout -b $change_id --track origin/$change_id' failed unexpectedly. Stopping — resolve $path by hand, then re-run." \
+          git -C "$path" checkout -b "$change_id" --track "origin/$change_id" || return 2
         ff=0
         ;;
     esac
     if [ "$ff" -eq 1 ]; then
       echo "-- $path: fast-forwarding $change_id to origin/$change_id --"
-      git -C "$path" merge --ff-only "origin/$change_id"
+      run_step "$path: fast-forward of $change_id failed unexpectedly. Stopping — resolve $path by hand, then re-run." \
+        git -C "$path" merge --ff-only "origin/$change_id" || return 2
     fi
     i=$((i + 1))
   done < <(list_repos)
@@ -397,15 +415,18 @@ cmd_finish() {
     fi
 
     local i=0
+    local -a deleted_paths=()
     while IFS= read -r path; do
       if [ "${can_delete[$i]:-0}" = "1" ]; then
         echo "-- $path: deleting local branch '$change_id' --"
-        git -C "$path" branch -d "$change_id"
+        run_step "$path: 'git branch -d $change_id' failed unexpectedly. Stopping — already deleted: ${deleted_paths[*]:-<none>}. Resolve $path by hand, then re-run --cleanup for the rest." \
+          git -C "$path" branch -d "$change_id" || return 2
         git -C "$path" config --unset "flow-base.$change_id" 2>/dev/null || true
         if repo_remote_branch_exists "$path" "$change_id"; then
           echo "-- $path: deleting origin/$change_id --"
           git -C "$path" push origin --delete "$change_id" 2>/dev/null || echo "   (already gone on origin)"
         fi
+        deleted_paths+=("$path")
       fi
       i=$((i + 1))
     done < <(list_repos)
