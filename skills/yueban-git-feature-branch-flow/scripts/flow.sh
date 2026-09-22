@@ -405,6 +405,11 @@ cmd_finish() {
         blocked=1
         continue
       fi
+      if [ "$(repo_branch "$path")" = "$change_id" ] && repo_is_dirty "$path"; then
+        echo "BLOCKED: $path is currently on '$change_id' with uncommitted changes — cleanup needs to switch it back to '$base' before deleting the branch. Commit or stash first." >&2
+        blocked=1
+        continue
+      fi
       can_delete+=("1")
     done < <(list_repos)
 
@@ -418,6 +423,12 @@ cmd_finish() {
     local -a deleted_paths=()
     while IFS= read -r path; do
       if [ "${can_delete[$i]:-0}" = "1" ]; then
+        if [ "$(repo_branch "$path")" = "$change_id" ]; then
+          local base; base="$(resolve_base "$path")"
+          echo "-- $path: currently on '$change_id', switching to '$base' first --"
+          run_step "$path: 'git checkout $base' failed unexpectedly. Stopping — already deleted: ${deleted_paths[*]:-<none>}. Resolve $path by hand, then re-run --cleanup for the rest." \
+            git -C "$path" checkout "$base" || return 2
+        fi
         echo "-- $path: deleting local branch '$change_id' --"
         run_step "$path: 'git branch -d $change_id' failed unexpectedly. Stopping — already deleted: ${deleted_paths[*]:-<none>}. Resolve $path by hand, then re-run --cleanup for the rest." \
           git -C "$path" branch -d "$change_id" || return 2

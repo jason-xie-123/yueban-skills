@@ -206,7 +206,28 @@ cmd_push() {
   local -a push_paths=() push_branches=()
   local path branch
   local blocked=0
-  local super_ahead
+  local super_ahead super_behind
+
+  # Same divergence check cmd_pull does for the superproject, so a plain
+  # `git push` failing on non-fast-forward isn't the first time we notice
+  # the superproject is behind — we report it alongside the other BLOCKED
+  # items instead of failing mid-push after submodules already went out.
+  local super_branch super_ab
+  super_branch="$(sm_branch ".")"
+  if [ -z "$super_branch" ]; then
+    echo "BLOCKED: superproject is in detached HEAD. Resolve manually first (checkout the intended branch)." >&2
+    return 2
+  fi
+  if super_ab="$(sm_ahead_behind "." "$super_branch")"; then
+    super_ahead="$(echo "$super_ab" | awk '{print $1}')"
+    super_behind="$(echo "$super_ab" | awk '{print $2}')"
+    if [ "$super_behind" -gt 0 ]; then
+      echo "BLOCKED: superproject ($super_branch) is behind origin/$super_branch by $super_behind commit(s) (ahead $super_ahead). Pull first — this tool never force-pushes." >&2
+      return 2
+    fi
+  else
+    super_ahead="$(git rev-list --count '@{u}..HEAD' 2>/dev/null || echo 0)"
+  fi
 
   while IFS= read -r path; do
     [ -d "$path" ] || { echo "BLOCKED: $path is not checked out." >&2; blocked=1; continue; }
@@ -249,7 +270,6 @@ cmd_push() {
     return 2
   fi
 
-  super_ahead="$(git rev-list --count '@{u}..HEAD' 2>/dev/null || echo 0)"
   if [ "$super_ahead" -gt 0 ]; then
     echo "PLAN: superproject — push $super_ahead commit(s)"
   else
