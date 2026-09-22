@@ -61,23 +61,32 @@ allowed-tools: Bash, Read, Edit, Grep, Glob, Skill, Workflow, AskUserQuestion
 
 ## 第一步：多轮校验循环（Workflow 工具）——只审查 spec 文档本身
 
-用 Workflow 工具跑一个「round = 并行只读多角度评审 → 单一顺序修复 agent」的循环，直到收敛或撞轮次上限。**这一步在实施之前进行**，审查对象是 `proposal.md`/`design.md`/`tasks.md`/`specs/**/*.md` 这几份文档本身，不是代码实现（此时代码大概率还没写）。修复 agent 也**只修这几份文档**，不碰其他任何东西。
+用 Workflow 工具跑一个「round = 只读评审（全量或增量）→ 单一顺序修复 agent（只处理 blocker/major）」的循环，直到 blocker/major 清零或撞轮次上限，收敛后再统一批量修一次累积的 minor。**这一步在实施之前进行**，审查对象是 `proposal.md`/`design.md`/`tasks.md`/`specs/**/*.md` 这几份文档本身，不是代码实现（此时代码大概率还没写）。修复 agent 也**只修这几份文档**，不碰其他任何东西。
 
-**轮次规则（已由用户拍板，不要再问）：MIN_ROUNDS=1（一轮 0 问题就立刻停，不强制凑够更多轮），MAX_ROUNDS=5（硬上限，撞到就不管是否收敛都强制结束进入下一步）。** 这条规则的推理：MIN_ROUNDS 只在"第一轮就 0 问题"时起作用，此时强制多跑几轮大概率还是 0 问题、纯粹浪费；真有问题时不管 MIN_ROUNDS 是多少都会继续修复+再校验直到收敛或撞上限，不受 MIN_ROUNDS 影响。**这里写的 1/5 只是复述给人/agent 快速理解用——真正被执行的唯一权威来源是 [`spec-cycle.template.js`](spec-cycle.template.js) 里的常量，这里和那边如果哪天不小心改得不一致了，以 `spec-cycle.template.js` 为准。**
+**轮次规则（已由用户拍板，不要再问）：MIN_ROUNDS=1（round 1 若已经是全量且 blocker/major 清零就立刻停，不强制凑够更多轮），MAX_ROUNDS=5（硬上限，撞到就不管是否收敛都强制结束进入下一步）。** **这里写的 1/5 只是复述给人/agent 快速理解用——真正被执行的唯一权威来源是 [`spec-cycle.template.js`](spec-cycle.template.js) 里的常量，这里和那边如果哪天不小心改得不一致了，以 `spec-cycle.template.js` 为准。**
 
-每轮 4 个并行只读评审 agent，各自角度：
+**审查方式：round 1 全量，中间轮次增量，收敛前最后一轮再全量把关一次**——round 1 永远跑全量（下面 4 个并行只读评审角度都跑一遍）；中间轮次改成一个更便宜的**增量复核**：只核对上一轮发现的问题是否真的修好了、这次修复有没有在被改动的文档里引入新的不一致，不重新审查未涉及的部分，成本远低于全量。只要某一轮（不管全量还是增量）查出 blocker/major 数为 0，下一轮不会立刻停——如果这一轮本身就是全量，直接收敛结束；如果是增量，下一轮会被自动升级为全量，用一次完整审查确认"真的没问题"之后才收敛。命中 MAX_ROUNDS 时，无论前面走到哪一轮，最后一轮都会被强制升级为全量，保证最终报告始终来自一次完整审查，不会是增量复核的片面结论。
 
-1. **文档自洽性**：`proposal.md`/`design.md`/`tasks.md`/`specs/**/*.md` 之间是否互相矛盾——`design.md` 里的每条 Decision 是否都体现在 `tasks.md` 的具体任务里；`tasks.md` 是否覆盖了 `proposal.md` 的 Capabilities/Impact 段落承诺的全部范围（有没有承诺了但没拆成任务的遗漏，或任务里做了但 proposal 没提及的范围蔓延）；`specs/**/*.md` 的验收标准是否和 `proposal.md`/`design.md` 一致。
+**停止条件：blocker/major 清零即可退出，不要求零问题；minor 级问题不在轮次里修，收敛后统一批量修一次。** 这是因为评审员总能挑出一些措辞类的 minor 问题，如果要求零问题才能停，几乎每次都会被迫跑满轮次——真正值得为它多跑一轮、反复来回改的只有 blocker/major。每轮发现的 minor 问题会被原样累积，等 blocker/major 真正清零、循环收敛之后，用**一次**修复 agent 统一处理掉，不再对这批 minor 修复单独起一轮复核（信任修复结果，这是收尾式的措辞/细节修正）。如果撞了 MAX_ROUNDS 仍有未解决的 blocker/major，minor 不处理——先解决 blocker/major 再说（同下面"已知坑"一节）。
+
+**产品/技术取舍类分歧按固定顺序自动裁决，不停下来问用户，裁决后默认不再翻案**：像"某个功能点要不要做""某个字段要不要展示"这类没有唯一正确答案、需要判断优先级的问题（区别于"文档写错了"这类事实性错误），修复 agent 按 proposal.md 的 PRD 原文 > openspec/config.yaml 的 rules > 代码库现有实现的既定模式 > demo/原型这个固定优先级独立裁决，把结论和依据追加进 `design.md` 的『Decision Record』小节（没有就新建）。后续轮次的评审 agent 如果发现同一件事已经被裁决过，默认不能重复提出——除非能引用到 PRD 或 config.yaml 的新原文依据，而不是换一种措辞重新表达同一个偏好。这条规则直接针对一个真实发生过的问题：同一个产品取舍分歧在不同轮次被来回改判，白跑了好几轮才靠人工拍板定下来。
+
+round 1 全量评审的 4 个角度：
+
+1. **文档自洽性**：`proposal.md`/`design.md`/`tasks.md`/`specs/**/*.md` 之间是否互相矛盾——`design.md` 里的每条 Decision（含『Decision Record』小节里的裁决记录）是否都体现在 `tasks.md` 的具体任务里；`tasks.md` 是否覆盖了 `proposal.md` 的 Capabilities/Impact 段落承诺的全部范围（有没有承诺了但没拆成任务的遗漏，或任务里做了但 proposal 没提及的范围蔓延）；`specs/**/*.md` 的验收标准是否和 `proposal.md`/`design.md` 一致。
 2. **设计前提时效性**：`design.md`/`proposal.md` 里对当前代码库的假设（文件路径、页面/接口数量、依赖的其他 change 是否已落地、数据结构现状）是否还成立——**要去读实际代码库核实，不是拿文档和文档互相比对**。这个 change 立项可能是在依赖的上游 change 落地之前写的，现在代码现状可能已经变化（比如某个前置 change 已经归档、某个文件路径已经改变）。
 3. **任务可执行性与规范合规**：`tasks.md` 里每条任务描述是否足够具体、可以被 `openspec-apply-change` 直接执行而不需要额外澄清（模糊的任务会导致下一步实施阶段卡住反复追问）；是否满足 `openspec/config.yaml` 里的 `rules`（尤其 `tasks` 下的强制项，如触及前端网页时验证段是否要求真实浏览器端到端测试，不能只写 `e2e/` 这类纯 API 套件、是否把 commit/PR 这类流程性收尾误写进了 tasks.md）。
-4. **测试任务断言充分性**：`tasks.md` 里的验证类任务是否只写了"跑现有测试不报错""跑一遍验证套件"这类泛化描述，还是针对本次新增/变更的具体行为写了有针对性的新断言（比如新增字段在页面上的展示校验、新增交互路径的具体检查点、新增接口的边界条件断言）——泛化描述即使技术上"可执行"，也发现不了本次改动引入的回归，必须记为 issue 要求补充具体断言；已有断言若已经覆盖到位则不需要额外挑刺。
+4. **测试任务断言充分性**：`tasks.md` 里的验证类任务是否只写了"跑现有测试不报错""跑一遍验证套件"这类泛化描述，还是针对本次新增/变更的具体行为写了有针对性的新断言（比如新增字段在页面上的展示校验、新增交互路径的具体检查点、新增接口的边界条件断言）——泛化描述即使技术上"可执行"，也发现不了本次改动引入的回归，必须记为 issue 要求补充具体断言；已有断言若已经覆盖到位则不需要额外挑刺。**只检查"有没有针对新增/变更行为的断言"这一件事，不要求断言穷尽所有 edge case 或颗粒度足够细**——不能以"可以写得更细/更全"为理由反复提出新 issue。这条同样针对一个真实发生过的问题：断言颗粒度要求没有上限，导致 `tasks.md` 越写越长，实施阶段被迫写出大量非必要的用例。
 
-每条发现记一条 issue（`severity: blocker|major|minor`、`description`、`location`），四个 agent 的结果直接汇总（模板不做自动去重——四个角度偶尔会各自报出同一处问题，措辞不完全一样，机械去重容易漏判或误合并；这些重复项会原样进下一步修复 agent 的 prompt，修复 agent 按内容自行识别"这几条其实是同一处"，不需要单独处理，不影响修复结果，只是 prompt 会稍长）。
+**round 1 还会顺带并行跑一次一次性的基线探测**：找到项目当前标准的完整验证命令（构建+测试），在改动前的代码库上跑一遍，报告哪些失败是这次 change 实施之前就已经存在的（`baseline` 字段，只读，不修复也不影响本轮 issue 判断）。第二步实施完成后要用到这个结果，见下方"第二步"一节。
 
-- 若本轮 issue 数 > 0：跑**一个**顺序修复 agent（不并行，避免多个 agent 同时改同一批文件冲突），按顺序逐条修复——**只编辑 `proposal.md`/`design.md`/`tasks.md`/`specs/**/*.md` 这几份文档**，把过期的设计前提、不自洽的描述、不够具体的任务拆分改到位；**不实施任何代码**，也不需要跑 `go build`/`npx tsc` 这类命令（这一步不产出代码，没有可编译的改动）。
-- 修复 agent 之后紧跟着跑一次 `openspec validate <change-name>`（确定性的格式检查，不是 LLM 判断）——修复 agent 只保证语义/内容层面改对了，不保证没把 openspec CLI 要求的格式（必需 section、`specs/**/*.md` 里的 MUST/WHEN/THEN 关键字等）改坏。这一步比等到第三步（实施完之后）才第一次跑 validate 更早拦住格式问题，避免带着坏格式去实施。若不通过：再跑一次针对性修复+复检（只修一次，不无限重试）；若复检仍不通过，视为独立于语义 issue 之外的一类未解决问题，带进本轮汇总，不能被"issue 数 = 0"掩盖。
-- 若本轮 issue 数 = 0 且已达 MIN_ROUNDS：提前收敛结束。
-- 达到 MAX_ROUNDS 仍未收敛：强制结束，未解决的剩余 issue 如实带进下一步的报告（通常这时剩下的都是 minor 级别；如果还有 blocker 没解决，不要进入下一步，先向用户说明，让用户决定是否可以带着已知缺口进入实施阶段）。
+每条发现记一条 issue（`severity: blocker|major|minor`、`description`、`location`），并行角度的结果直接汇总（模板不做自动去重——几个角度偶尔会各自报出同一处问题，措辞不完全一样，机械去重容易漏判或误合并；这些重复项会原样进下一步修复 agent 的 prompt，修复 agent 按内容自行识别"这几条其实是同一处"，不需要单独处理，不影响修复结果，只是 prompt 会稍长）。
+
+- 若本轮 blocker/major 数 > 0：跑**一个**顺序修复 agent（不并行，避免多个 agent 同时改同一批文件冲突），按顺序逐条修复这些 blocker/major（**minor 这一轮不碰**，累积到收尾统一处理）——**只编辑 `proposal.md`/`design.md`/`tasks.md`/`specs/**/*.md` 这几份文档**，把过期的设计前提、不自洽的描述、不够具体的任务拆分改到位，遇到产品/技术取舍类分歧按上面的固定顺序裁决并记入决策记录；**不实施任何代码**，也不需要跑 `go build`/`npx tsc` 这类命令（这一步不产出代码，没有可编译的改动）。
+- 修复 agent 之后紧跟着跑一次 `openspec validate <change-name>`（确定性的格式检查，不是 LLM 判断）——修复 agent 只保证语义/内容层面改对了，不保证没把 openspec CLI 要求的格式（必需 section、`specs/**/*.md` 里的 MUST/WHEN/THEN 关键字等）改坏。这一步比等到第三步（实施完之后）才第一次跑 validate 更早拦住格式问题，避免带着坏格式去实施。若不通过：再跑一次针对性修复+复检（只修一次，不无限重试）；若复检仍不通过，视为独立于语义 issue 之外的一类未解决问题，带进本轮汇总，不能被"blocker/major 数 = 0"掩盖。
+- 若本轮 blocker/major 数 = 0：全量轮直接收敛结束（若已达 MIN_ROUNDS）；增量轮则把下一轮升级为全量，再确认一次才收敛。
+- 达到 MAX_ROUNDS 仍未收敛：强制结束（最后一轮已经是全量），未解决的剩余 blocker/major 如实带进下一步的报告；这种情况下 minor 不处理。若还有 blocker 没解决，不要进入下一步，先向用户说明，让用户决定是否可以带着已知缺口进入实施阶段。
+- 循环真正收敛（blocker/major 清零）后：如果这一路累积了 minor 级问题，跑一次批量修复 agent 统一处理，再跑一次 `openspec validate` 兜底确认格式没被改坏（不再对这次批量修复单独起一轮 review）。
 
 具体怎么写这个 Workflow 脚本：本 skill 目录下的 [`spec-cycle.template.js`](spec-cycle.template.js) 就是这个模板，已经实现好上面描述的全部逻辑，是本 skill 唯一的权威来源——**不要依赖任何本地临时/缓存路径（scratchpad、`/tmp` 等）里可能残留的历次脚本副本**，那些是会话级临时产物，换一个 session、换一台机器就不存在，不能作为标准流程的一部分。
 
@@ -89,12 +98,13 @@ allowed-tools: Bash, Read, Edit, Grep, Glob, Skill, Workflow, AskUserQuestion
 
 ## 第二步：实施（openspec-apply-change）
 
-第一步收敛（或撞上限带着已知 minor 缺口继续）后，spec 文档本身已经核实过是准确的，现在用 `Skill` 工具调用 `openspec-apply-change`（`Skill({skill: "openspec-apply-change"})`，传入 change 名），让它按自己的"逐任务实施循环"把 `tasks.md` 里的任务全部做完。
+第一步收敛（blocker/major 清零、累积的 minor 也已批量修完）后，spec 文档本身已经核实过是准确的，现在用 `Skill` 工具调用 `openspec-apply-change`（`Skill({skill: "openspec-apply-change"})`，传入 change 名），让它按自己的"逐任务实施循环"把 `tasks.md` 里的任务全部做完。
 
 - 先用 `openspec instructions apply --change "<name>" --json` 看任务级 Progress 的 `remaining`/`complete` 计数与 `state`；如果已经是 `state: "all_done"`，说明上次会话已经实施过，跳过调用，直接进入第三步（注意这和"前置检查"一节用的 `openspec status --change "<name>" --json` 是两个不同命令：`status` 只报告 `isComplete` 这类 artifact 齐全性，不含任务级进度字段，任务级 `remaining`/`complete`/`state: "all_done"` 只出现在 `instructions apply` 的输出里）。
 - `openspec-apply-change` 会自己反复循环直到 `all_done` 或遇到需要人拍板的阻塞（任务描述不清楚、实施中发现设计问题、报错）——**遇到阻塞就按它自己的 Guardrails 停下来问用户，不要替它猜答案硬推进**，这和本 skill"什么时候不适合用"一节里"Open Questions 未定案先问用户"的原则是一致的。
 - `tasks.md` 里按 `openspec/config.yaml` 规则要求的验证类任务（不限于末尾）本身就是这一步要执行的任务之一，**不需要额外安排一轮独立的门禁验证**——如果 `openspec-apply-change` 报告某条验证任务失败，那就是这一步的阻塞，按上面的方式停下来问用户，不要跳过验证任务直接标完成。
 - 实施完成后，`grep -c "^\- \[ \]" tasks.md` 确认真的是 0（不要只信 `openspec-apply-change` 自己报告的 `all_done`，用文件内容做一次交叉核实）。
+- **既有失败一律修复，单独提交**：第一步 Workflow 返回结果里的 `baseline` 字段记录了这次 change 实施之前代码库本就存在的失败（`baseline.failingTests`/`baseline.output`）。`openspec-apply-change` 完成后，如果这次实施过程中遇到的测试/构建失败能在 `baseline` 里对上号，说明它是既有问题、不是本次改动引入的——**不要因为"改动前就有"就放着不管，也不要和本次 change 的实现混在同一个 commit 里**：单独修一次、单独 `git commit`（message 里写明是与 `<change-name>` 无关的既有失败修复），修完再继续走后面的步骤。如果某个失败在 `baseline` 里查不到、看起来是本次改动新引入的，那按正常的实施阻塞处理（回到 `openspec-apply-change` 自己的循环里解决），不要混淆这两类失败。**`baseline` 字段本身可能是 `null`**——round 1 的基线探测和这个 change 自己一样，也是一次 agent 调用，同样可能因为 API 重试耗尽而失败（见下方"已知坑"一节）；`baseline` 为 `null` 时，不能假设"没有既有失败"，也不能拿 `baseline.failingTests` 直接取值（会报错）——按"这次没能拿到基线快照"处理，第二步遇到的失败无法直接对照判断新旧，需要更谨慎地人工核实（参照下面"不要在没有对照组的情况下断言"这条已知坑里的手动核对方式）。
 
 ## 第三步：openspec validate + archive
 
@@ -155,9 +165,11 @@ EOF
 ## 已知坑
 
 - **archive 时容易漏删旧目录 / 漏同步新 spec**：`git status` 确认 `mv` 后的新旧路径都被正确 add/remove，不能只信 `openspec archive` 命令的输出。
-- **Workflow 返回的 `unresolvedBlockers` 字段**：撞到 MAX_ROUNDS 仍未收敛时，检查这个字段（最后一轮里 severity=blocker 的 issue）——非空就不要直接进入第二步实施，先向用户说明还有哪些 blocker 级的文档问题没解决，blocker 通常意味着任务拆分本身不可执行，带着它去实施大概率会卡住或做错方向；只有 major/minor 级别的剩余问题可以酌情带着已知缺口继续。
-- **Workflow 返回的 `unresolvedValidateFailure` 字段**：最后一轮 issue 数 > 0（validate 因此实际跑过）却没能拿到明确的通过结果时，这个字段为 `true`——既包括"`openspec validate` 修复重试一次后仍未通过"，也包括"validate 这个 agent 调用本身失败，没能拿到结果"这两种情况，两者都不能默认"应该是没问题"。为 `true` 时同样不要直接进入第二步实施，先向用户说明具体情况（validate 报错在 `roundLog` 最后一项的 `validateOutput` 里；agent 调用失败则没有 `validateOutput`，需要向用户说明是哪一步的调用没拿到结果），不能假设"issue 数 = 0"就等于文档没问题。
+- **Workflow 返回的 `unresolvedBlockers` 字段**：撞到 MAX_ROUNDS 仍未收敛时，检查这个字段（最后一轮——一定是全量轮——里 severity=blocker 的 issue）——非空就不要直接进入第二步实施，先向用户说明还有哪些 blocker 级的文档问题没解决，blocker 通常意味着任务拆分本身不可执行，带着它去实施大概率会卡住或做错方向；只有 major/minor 级别的剩余问题可以酌情带着已知缺口继续。
+- **Workflow 返回的 `unresolvedValidateFailure` 字段**：最后一轮 `blockerMajorCount > 0`（validate 因此实际跑过）却没能拿到明确的通过结果时，这个字段为 `true`——既包括"`openspec validate` 修复重试一次后仍未通过"，也包括"validate 这个 agent 调用本身失败，没能拿到结果"这两种情况，两者都不能默认"应该是没问题"。为 `true` 时同样不要直接进入第二步实施，先向用户说明具体情况（validate 报错在 `roundLog` 最后一项的 `validateOutput` 里；agent 调用失败则没有 `validateOutput`，需要向用户说明是哪一步的调用没拿到结果），不能假设"`blockerMajorCount` = 0"就等于文档没问题——这个字段本来就只在有 blocker/major 时才可能非 null。
+- **产品/技术取舍类分歧如果被反复提出，先查 `design.md` 的『Decision Record』小节**：按规则，评审 agent 发现同一件事已经裁决过时，默认不该重复提出，除非引用到 PRD/config.yaml 的新原文依据。如果观察到同一个分歧在不同轮次来回改判，多半是评审 agent 没遵守"无新证据不翻案"的约束，需要人工核实分歧本身，不能默认最新一轮的判断就是对的。
+- **`pendingMinorsFixed` 为 `null` 不代表"没有 minor 问题"**：只有循环真正收敛（`fullyConverged: true`）且确实累积过 minor 才会有值；如果撞了 MAX_ROUNDS 仍未收敛，minor 不会被处理，`pendingMinorsFixed` 保持 `null`，这是预期行为，不是遗漏。
 - **第一步的修复 agent 越权碰其他文件**：模板的修复 agent prompt 已经明确限定只改 `proposal.md`/`design.md`/`tasks.md`/`specs/**/*.md`，如果发现某次修复实际改动了这 4 类文档之外的任何文件（`git status` 能看出来），说明 agent 没有遵守边界，需要人工核实这些改动是否合理，不能默认它是对的。
 - **`openspec-apply-change` 报告 `all_done` 不等于真的全部完成**：第二步末尾用 `grep -c "^\- \[ \]" tasks.md` 交叉核实，不要只信它自己的进度汇报。
-- **workflow 里某个 agent 因 API 错误重试耗尽失败（`StructuredOutput retry cap exceeded`）不等于整轮作废**：其余并行 agent 的结果仍然有效，通常不影响该轮结论；但如果同一 change 反复在同一个 agent 上失败，要向用户报告而不是无限重试。
-- **不要在没有对照组的情况下断言"这是本次改动引入的问题"**：比如第二步实施中遇到的 lint/build 报错，先确认改动前的 baseline 是否本来就有同样的报错（`git stash` 或对比 merge-base 的干净检出），避免把既有技术债误判成本次改动的缺陷、或反过来把本次改动的真实问题当成"无关的历史遗留"放过。
+- **workflow 里某个 agent 因 API 错误重试耗尽失败（`StructuredOutput retry cap exceeded`）不等于整轮作废**：全量轮里其余并行 agent 的结果仍然有效，通常不影响该轮结论；增量轮只有唯一一个 agent，如果它失败，本轮会按 0 issue 处理，但下一轮会被自动升级为全量兜底，不算漏检，只是浪费一轮。如果同一个 change 反复在同一个 agent 上失败，要向用户报告而不是无限重试。
+- **不要在没有对照组的情况下断言"这是本次改动引入的问题"**：第一步 round 1 已经并行跑过一次 `baseline` 探测（见"第一步"一节），第二步实施中遇到 lint/build/测试报错时先对照这个 baseline，能对上号的就是既有问题（按"第二步"一节单独修复、单独提交），避免把既有技术债误判成本次改动的缺陷、或反过来把本次改动的真实问题当成"无关的历史遗留"放过；`baseline` 只是实施开始前的一次性快照，如果实施过程本身改了测试/构建配置，仍要以实际跑到的结果为准去核对，不能机械地假设 `baseline` 列出的失败原样不变。`baseline` 探测本身也是一次 agent 调用，同样可能因 API 重试耗尽而 resolve 成 `null`（和其它并行评审 agent 一样）——为 `null` 时不代表"没有既有失败"，只是"没能拿到基线快照"，此时判断新旧失败只能靠人工核对（比如 `git stash`/对比 merge-base 的干净检出），不能跳过这一步直接假设都是本次改动引入的。
