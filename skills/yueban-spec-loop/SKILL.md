@@ -185,10 +185,30 @@ git commit -m "docs: propose <change-name>"
 git push || git push -u origin HEAD
 ```
 
+**产物看起来不对时**（`openspec-propose` 报错退出、四项产物缺了一项、或读完之后发现内容明显
+不成立——比如 `tasks.md` 是空的、`proposal.md` 和这一轮 `EXPLORE_NEXT` 选定的 change 主题对不
+上）：**不要**尝试自己动手把它改成"看起来对"再提交，也不要跳过这个 change 直接回到
+`EXPLORE_NEXT` 去找下一个——这两种做法都会让 Iteration Log 和实际状态对不上。按 `EXPLORE_NEXT`
+"探索未能给出下一个 change"那一段同样的处理方式：把 `status` 设为 `paused`，在 Iteration Log
+追加一行说明"PROPOSE_PLAN 产物异常"及具体原因，发 `PushNotification`（消息类似
+`spec-loop paused: PROPOSE_PLAN for '<change-name>' produced no usable artifacts —
+<one-line reason>. Needs your review.`；无 `PushNotification` 时改为在本轮输出中醒目打印），
+以哨兵行 `LOOP_STATUS: PAUSED` 结束本轮。不要提交，也不要继续循环。
+
 ### APPLY
 
 针对 `<change-name>` 调用 `openspec-apply-change` 技能
 （`Skill({skill: "openspec-apply-change"})`），它会在一次调用里逐一处理完 `tasks.md` 中所有未勾选的任务，处理期间不会把控制权交还给你——也就是说，你没有机会在它执行的过程中、单个任务与任务之间插入提交。
+
+**`openspec-apply-change` 自己按它的 Guardrails 停下来问用户，而不是完成或报错退出时**（它是
+目标项目安装的通用 OpenSpec 技能，不是本技能自己写的，有它自己一套"遇到阻塞就 `AskUserQuestion`
+问人"的规则）：**本技能是无人值守运行，这种情况下不能有人来回答它的问题**——不要替它猜一个答案
+硬答过去，也不要因为它"没有明确失败"就当成完成继续往下走 `VERIFY`。按 `FIX_RETRY` 撞到 3 次上限
+时同样的处理方式：把状态文件中的 `status` 设为 `paused`，在 Iteration Log 追加一行说明
+"APPLY 被 openspec-apply-change 自身的 guardrail 阻塞"及它具体想问什么，发 `PushNotification`
+（消息类似 `spec-loop paused: openspec-apply-change blocked on <change-name> waiting for a
+human decision — <one-line summary of its question>. Needs your review.`；无 `PushNotification`
+时改为在本轮输出中醒目打印），以哨兵行 `LOOP_STATUS: PAUSED` 结束本轮。不要提交，也不要继续循环。
 
 **提交：** `openspec-apply-change` 返回后，检查这次调用实际完成了几个任务：
 
