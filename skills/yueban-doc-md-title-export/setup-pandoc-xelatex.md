@@ -156,3 +156,4 @@ sudo tlmgr update --self --all
 ## 相关文档
 
 - [SKILL.md](./SKILL.md) —— 本技能的主文档；PDF 导出工具链的 5 级优先级列表在其"PDF 导出工具链"部分
+- [`pandoc + xelatex PDF export environment setup.pdf`](<./pandoc + xelatex PDF export environment setup.pdf>) —— 本文档英文版内容，用本文所述的 pandoc + xelatex 流程实际导出的 PDF 样例，用来验证这条链路（尤其是中英文混排、代码块字体设置）确实能跑通产出预期效果；不是待处理的临时文件
