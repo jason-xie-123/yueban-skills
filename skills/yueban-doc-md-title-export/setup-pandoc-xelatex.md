@@ -156,4 +156,3 @@ sudo tlmgr update --self --all
 ## 相关文档
 
 - [SKILL.md](./SKILL.md) —— 本技能的主文档；PDF 导出工具链的 5 级优先级列表在其"PDF 导出工具链"部分
-</content>
