@@ -1,6 +1,6 @@
 ---
 name: yueban-loop-openspec
-description: '把一个 Goal 变成一个无人值守、自驱动的 OpenSpec 循环：动态挑选下一个价值最高的 change，进行 propose/plan，实现它，用一个全新的独立 agent 验证它，归档它，并判断整个 goal 是否完成——如此重复，直到 DONE 或某个护栏暂停它以供人工审阅。仅限 Claude Code：与内置的 /loop 技能（用于调度）以及 PushNotification（用于提醒）组合使用。只在明确调用时使用——用 "/yueban-loop-openspec <目标...>" 启动，用 "/yueban-loop-openspec continue" 或裸的 "/yueban-loop-openspec" 恢复，用 "/loop /yueban-loop-openspec <目标...>" 进行完全无人值守的运行。要求目标项目已经初始化过 OpenSpec（openspec init，默认的 core profile 就够）——本技能不负责为项目引导安装 OpenSpec 本身。'
+description: '把一个 Goal 变成一个无人值守、自驱动的 OpenSpec 循环：动态挑选下一个价值最高的 change，进行 propose/plan，实现它，用一个全新的独立 agent 验证它，归档它，并判断整个 goal 是否完成——如此重复，直到 DONE 或某个护栏暂停它以供人工审阅。仅限 Claude Code：与内置的 /loop 技能（用于调度）以及 PushNotification（用于提醒）组合使用。只在明确调用时使用——用 "/yueban-loop-openspec <目标...>" 启动，用 "/yueban-loop-openspec continue" 或裸的 "/yueban-loop-openspec" 恢复，用 "/loop /yueban-loop-openspec <目标...>" 进行完全无人值守的运行。要求目标项目已经初始化过 OpenSpec（openspec init，默认的 core profile 就够）——本技能不负责为项目引导安装 OpenSpec 本身。**注意：本技能在每个检查点会自动 commit 并 push 到 origin（与本仓库另外两个 spec 流程 skill——yueban-spec-single-change-flow、yueban-spec-roadmap-flow——"只 commit 不 push"的约定不同），因为它是设计给完全无人值守运行的；不想自动 push 到远端就不要用它。**'
 allowed-tools: Bash, Read, Write, Edit, Skill, Agent, PushNotification
 ---
 
@@ -22,8 +22,8 @@ APPLY → VERIFY → ARCHIVE（或 FIX_RETRY）→ CHECK_GOAL_DONE，如此重�
   已派发子代理。技能发现（针对
   `openspec-explore`/`openspec-propose`/`openspec-apply-change`）绑定的是会话实际的
   项目根目录，而不仅仅是工作目录。
-- **在每个检查点直接通过 `git` 提交**（add/commit/push）——本技能不依赖目标项目安装了
-  其他任何技能（比如本仓库自带的 `yueban-git-commit`）。
+- **在每个检查点直接通过 `git` 提交并推送**（add/commit/push，push 到 origin 不需要额外确认）——本技能不依赖目标项目安装了
+  其他任何技能（比如本仓库自带的 `yueban-git-commit`）。这是本技能区别于 `yueban-spec-single-change-flow`/`yueban-spec-roadmap-flow`（两者都只 commit、不自动 push）的关键差异：本技能是为完全无人值守运行设计的，没人在场按 `yueban-git-commit` 的"push 前确认"逻辑做确认，所以每个检查点的 push 是自动的、无提示的。
 - **目标项目必须已经在其默认 profile 下初始化过 OpenSpec。** 做任何事之前先检查：
 
   ```bash

@@ -53,6 +53,7 @@ allowed-tools: Bash, Read, Edit, Grep, Glob, Skill, Workflow, AskUserQuestion
 ## 前置检查
 
 - 确认 `openspec` 命令本身在 PATH 上（`command -v openspec`）——第三步的 `openspec validate`/`openspec archive`、以及委托给 `openspec-apply-change` 的实施步骤都依赖这个二进制，缺了它会在流程跑到一半才报错，不如提前发现，向用户说明并停下。
+- 确认第二步要用到的 `openspec-apply-change` skill 已安装：`test -d .claude/skills/openspec-apply-change || echo "Missing .claude/skills/openspec-apply-change — re-run: openspec update --force"`。这一步必须在第一步的多轮校验循环（Workflow，高 token 消耗）之前做，否则会等整轮校验跑完、进入第二步才发现装不了，白白浪费掉第一步的开销。
 - 读 `openspec/config.yaml`：里面的 `rules`（`proposal`/`design`/`specs`/`tasks`）是本仓库对 OpenSpec artifacts 的强制约定（如语言、验证方式、前端改动是否要求端到端测试等），第一步的四个评审角度和修复 agent、第二步的 `openspec-apply-change` 实施都要以它为准绳，而不是只凭经验判断。
 - `git status --short` 确认工作区干净，`git fetch origin main` 确认本地与远端同步，避免在过期代码上开工。
 - 如果发现远端有本次会话不知情的新提交（尤其是大规模重构、或删除了 `openspec/` 下的目录），先向用户说明情况，不要在不确定的地基上继续；用户明确说"不用管，直接拉最新代码"就照做，不要反复追问。
