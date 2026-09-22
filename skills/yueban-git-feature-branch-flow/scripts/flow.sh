@@ -49,6 +49,25 @@ repo_is_dirty() {
   [ -n "$(git -C "$1" status --porcelain 2>/dev/null)" ]
 }
 
+# Like repo_is_dirty, but ignores submodule pointer drift (a submodule whose
+# checked-out commit differs from what this repo's index currently records).
+# That drift is the expected, normal in-flight state of this flow's own
+# "commit submodule first, bump the superproject's pointer last" workflow —
+# treating it as "dirty" would false-block start/sync/finish on ordinary use.
+# Use this at safety gates that decide whether it's safe to switch branches;
+# keep plain repo_is_dirty where the point IS to surface pointer drift (e.g.
+# cmd_pending, which tells the user "commit here to bump the pointer").
+# Verified: a `git merge --ff-only` in the superproject never conflicts on pure
+# (unstaged) gitlink drift alone — updating a submodule's recorded pointer via
+# fast-forward doesn't touch the submodule's own working tree, so there's
+# nothing for the merge to "overwrite" there. The one theoretical residual (a
+# *staged* `git add <submodule>` whose value conflicts with the incoming
+# fast-forward) falls through to this script's normal run_step failure
+# handling below, same as any other unexpected git failure.
+repo_is_dirty_ignoring_submodules() {
+  [ -n "$(git -C "$1" status --porcelain --ignore-submodules=all 2>/dev/null)" ]
+}
+
 repo_local_branch_exists() {
   git -C "$1" show-ref --verify --quiet "refs/heads/$2"
 }
@@ -150,7 +169,7 @@ cmd_start() {
 
   while IFS= read -r path; do
     [ -d "$path" ] || { echo "BLOCKED: $path is not checked out." >&2; blocked=1; continue; }
-    if repo_is_dirty "$path"; then
+    if repo_is_dirty_ignoring_submodules "$path"; then
       echo "BLOCKED: $path has uncommitted changes. Commit or stash first." >&2
       blocked=1
       continue
@@ -294,7 +313,7 @@ cmd_sync() {
           blocked=1
           continue
         fi
-        if repo_is_dirty "$path" && [ "$behind" -gt 0 ]; then
+        if repo_is_dirty_ignoring_submodules "$path" && [ "$behind" -gt 0 ]; then
           echo "BLOCKED: $path has uncommitted changes and origin/$change_id has new commits. Commit or stash first." >&2
           blocked=1
           continue
@@ -308,7 +327,7 @@ cmd_sync() {
     fi
 
     # not currently on change_id
-    if repo_is_dirty "$path"; then
+    if repo_is_dirty_ignoring_submodules "$path"; then
       echo "BLOCKED: $path has uncommitted changes on '$branch' — can't switch to '$change_id'. Commit or stash first." >&2
       blocked=1
       continue
@@ -417,7 +436,7 @@ cmd_finish() {
           continue
         fi
       fi
-      if [ "$(repo_branch "$path")" = "$change_id" ] && repo_is_dirty "$path"; then
+      if [ "$(repo_branch "$path")" = "$change_id" ] && repo_is_dirty_ignoring_submodules "$path"; then
         echo "BLOCKED: $path is currently on '$change_id' with uncommitted changes — cleanup needs to switch it back to '$base' before deleting the branch. Commit or stash first." >&2
         blocked=1
         continue
@@ -491,7 +510,7 @@ cmd_finish() {
     else
       echo "  $path: $commits commit(s) ahead of $base$base_note, $pushed, $merged"
     fi
-  done < <(list_repos)
+  done < <(list_submodules; echo ".")
   echo
   echo "Next steps (manual, this tool does not merge for you):"
   echo "  1. For each submodule with real commits: merge/PR '$change_id' into its base branch, then push that base branch."
