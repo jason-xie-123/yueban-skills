@@ -12,7 +12,6 @@
 .agents/skills/yueban-docs-format-conversion
 .agents/skills/yueban-english-speaking-practice
 .agents/skills/yueban-git-commit
-.agents/skills/yueban-loop-openspec
 .agents/skills/yueban-spec-roadmap-flow
 .agents/skills/yueban-spec-single-change-flow
 
@@ -31,6 +30,7 @@ token.json
 # Local git worktrees (isolated workspaces for implementation work)
 .worktrees/
 .agents/skills/yueban-docs-freshness-audit
-.agents/skills/yueban-docs-prune-historical-comments
 .agents/skills/yueban-git-feature-branch-flow
 .agents/skills/yueban-git-safe-sync
+.agents/skills/yueban-spec-loop
+.agents/skills/yueban-proj-prune-historical

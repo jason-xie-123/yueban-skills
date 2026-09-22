@@ -75,7 +75,7 @@ allowed-tools: Bash, Read, Write, Edit, Grep, Glob, AskUserQuestion
    - 真正的 UI 原型/线框图、发票样例、多分区系统架构板（价值在整体版面而非流程，同判断规则第 2 类）→ **保留原图**，不要强转。
    - 如果原 docx 里一张逻辑上完整的流程图被拆成了多张图片（分页截断），转 Mermaid 时要根据上下文业务规则核对衔接处，拼接还原成一张完整图，并在正文加说明，不要留下断裂的两张图。
 
-6. **检查交叉引用**：删除原文件前，用 `grep -r`（包含二进制文件用 `-a`，不要只 grep `*.md`）在**全仓库**范围搜一遍有没有其它文件引用过这个原文件路径或文件名——不止是 md 里的相对路径链接（`[详细设计](Bilings详细设计（副本）.docx)`），还要覆盖：其它非 md 文件（另一份 docx/xlsx 内部的超链接、CI 配置、wiki）、图片被 `![]()` 引用的情况、以及仓库里的 git submodule（submodule 内部可能单独引用了父仓库 docs 下的文件，需要单独进 submodule 目录搜一遍，父仓库的 grep 覆盖不到）——和 `yueban-docs-freshness-audit`/`yueban-docs-prune-historical-comments` 一致，submodule 清单不要手写，每次从 `.gitmodules` 动态取得并排除 `deprecated/` 前缀（历史/冻结模块不需要做交叉引用检查）：`git config -f .gitmodules --get-regexp '\.path$' | awk '{print $2}' | grep -v '^deprecated/'`。有引用的话，把链接同步改成转换后的新文件路径，不要留下指向已删除文件的死链接。
+6. **检查交叉引用**：删除原文件前，用 `grep -r`（包含二进制文件用 `-a`，不要只 grep `*.md`）在**全仓库**范围搜一遍有没有其它文件引用过这个原文件路径或文件名——不止是 md 里的相对路径链接（`[详细设计](Bilings详细设计（副本）.docx)`），还要覆盖：其它非 md 文件（另一份 docx/xlsx 内部的超链接、CI 配置、wiki）、图片被 `![]()` 引用的情况、以及仓库里的 git submodule（submodule 内部可能单独引用了父仓库 docs 下的文件，需要单独进 submodule 目录搜一遍，父仓库的 grep 覆盖不到）——和 `yueban-docs-freshness-audit`/`yueban-proj-prune-historical` 一致，submodule 清单不要手写，每次从 `.gitmodules` 动态取得并排除 `deprecated/` 前缀（历史/冻结模块不需要做交叉引用检查）：`git config -f .gitmodules --get-regexp '\.path$' | awk '{print $2}' | grep -v '^deprecated/'`。有引用的话，把链接同步改成转换后的新文件路径，不要留下指向已删除文件的死链接。
 
 7. **删除原文件前先确认，且确保能真正回退**：
    - 删除前先跑 `git status`/`git diff` 确认要删的原文件在仓库里**没有未提交的改动**——"删了还能从 git 历史找回"这个前提，建立在原文件当前内容已经被 commit 过；如果原文件本身有未提交的修改（比如用户正在编辑），核对无损核对的是旧内容，删除后未提交的改动会真的丢失且找不回来。发现有未提交改动时，先跟用户确认这些改动要不要保留/合并进转换结果，不要直接删。
