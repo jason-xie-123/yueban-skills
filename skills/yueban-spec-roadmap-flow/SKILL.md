@@ -6,9 +6,9 @@ compatibility: Requires the openspec CLI (on PATH) and the yueban-spec-single-ch
 allowed-tools: Bash, Read, Edit, Grep, Glob, Skill, AskUserQuestion
 ---
 
-# yueban 项目：全量 spec 推进
+# OpenSpec 全量 ROADMAP 推进
 
-本仓库（yueban）用 OpenSpec 管理产品/工程改动提案，`openspec/changes/ROADMAP.md` 记录当前所有 pending change。这个 skill 负责把整个 ROADMAP 待办清空，是 [`yueban-spec-single-change-flow`](../yueban-spec-single-change-flow/SKILL.md)（只处理**一个** change）的上层编排版本。
+本项目用 OpenSpec 管理产品/工程改动提案，`openspec/changes/ROADMAP.md` 记录当前所有 pending change。这个 skill 负责把整个 ROADMAP 待办清空，是 [`yueban-spec-single-change-flow`](../yueban-spec-single-change-flow/SKILL.md)（只处理**一个** change）的上层编排版本。这是一个通用 skill，随 `npx skills` 分发到任意装了 OpenSpec 的项目——下文不假设自己就装在"本仓库"里。
 
 ## 什么时候才能调用这个 skill
 
