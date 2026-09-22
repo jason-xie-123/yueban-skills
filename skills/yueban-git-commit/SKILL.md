@@ -65,13 +65,32 @@ git diff --staged
 # If nothing is staged, check the working tree diff
 git diff
 
-# Also check status
+# Also check status — a submodule with ANY changes (committed-but-unpushed
+# inside it, or still-uncommitted working tree changes) shows up here as
+# e.g. " M <submodule-path>", regardless of which case it is
 git status --porcelain
+
+# If this repo tracks submodules (.gitmodules exists) and status shows one as
+# modified, check further — `+` here means the submodule already has commits
+# ahead of the parent's recorded pointer, but a submodule can also have
+# uncommitted working-tree changes with NO `+` shown (git submodule status
+# only compares HEAD to the recorded SHA, it does not report dirty working trees)
+if [ -f .gitmodules ]; then
+  git submodule status
+fi
 ```
+
+If `git status --porcelain` lists a submodule path as modified, **stop here and resolve it via the "Handling submodules" section below before continuing to step 2** — don't rely on the `+` prefix alone to decide whether it's safe to proceed, since a submodule with uncommitted (not yet committed inside it) changes shows no `+` at all. Run `git -C <submodule-path> status --porcelain` to see whether the submodule's own working tree is dirty (case 1: needs a commit + push inside the submodule first) or clean (case 2: already committed, just confirm it's pushed before bumping the pointer).
 
 ### 2. Stage files (if needed)
 
-When nothing is staged yet, or you want to reorganize the change groupings:
+When nothing is staged yet, or you want to reorganize the change groupings, first decide how many commits this should be — don't jump straight to staging everything as one group:
+
+- Read the full unstaged diff (`git diff`) and list every changed file with a one-line summary of what changed in it.
+- Group files by *why* they changed, not by directory or file type: two files touched for the same reason (implementing one feature, fixing one bug, one refactor) are one group, even if they live in unrelated directories. Two files that happen to sit next to each other but serve unrelated changes (e.g. an unrelated typo fix picked up along the way) are separate groups.
+- A file that mixes multiple unrelated hunks needs a **partial stage** (`git add -p path/to/file`, or `git diff` + `Edit` + manual `git apply --cached` for precise hunk selection) — don't force a mixed file into a single group just because splitting it is more work.
+- If every changed file genuinely serves one purpose, one group (and one commit) is correct — don't manufacture multiple commits from a single logical change just to seem thorough.
+- When the grouping is ambiguous (e.g. it's unclear whether two changes are "the same reason" or coincidentally adjacent), ask the user rather than guessing — a wrong split/merge is harder to undo than a short question.
 
 ```bash
 # Stage specific files
@@ -81,9 +100,16 @@ git add path/to/file1 path/to/file2
 git add *.test.*
 git add src/components/*
 
-# Stage all tracked/untracked changes at once (use with caution)
+# Stage part of a file (interactively pick hunks) — for files that mix
+# multiple logical groups
+git add -p path/to/mixed-file
+
+# Stage all tracked/untracked changes at once — only once you've confirmed
+# every changed file genuinely belongs to the same logical group
 git add -A
 ```
+
+For a multi-group diff, repeat step 2 → step 3 → step 4 once per group (stage that group only, commit it, then move to the next group) rather than staging everything up front.
 
 **Never commit sensitive information** (e.g. `.env`, `credentials.json`, private keys).
 
@@ -131,12 +157,12 @@ git push
 
 If the repository tracks git submodules (see `.gitmodules`), they can show up in the parent repo's `git status`/`git diff` in two different ways — always tell them apart before staging:
 
-1. **The submodule itself has uncommitted changes (dirty submodule)** — `git submodule status` prefixes the entry with `+`, and `git status` reports "modified content" or "untracked content". This means the submodule's own working tree has changes that were never committed inside the submodule.
+1. **The submodule itself has uncommitted changes (dirty submodule)** — `git status` in the parent reports it as "modified content" or "untracked content" (or just `M <path>` in `--porcelain` output). Check with `git -C <submodule-path> status --porcelain`: any output means the submodule's own working tree has changes that were never committed inside the submodule. Note that `git submodule status` will **not** show a `+` prefix for this case — `+` only appears once the submodule has already committed ahead of the parent's recorded pointer, not while it's merely dirty.
    - Do not `git add <submodule-path>` directly in the parent repo — this silently rewinds the pointer to the submodule's previous commit, making the change appear to disappear while it actually still sits, uncommitted, inside the submodule.
    - `cd` into the submodule first and commit (and push) there, following the same Conventional Commits workflow, within the submodule's own history/conventions.
    - Only after the submodule's commit has been pushed to its own remote should you go back to the parent repo and stage the pointer change.
 
-2. **Only the pointer moved (submodule HEAD changed, working tree clean)** — someone already committed and pushed inside the submodule (or it was updated via `git submodule update --remote`), and the parent repo just needs to record the new commit SHA.
+2. **Only the pointer moved (submodule HEAD changed, working tree clean)** — `git -C <submodule-path> status --porcelain` is empty, but `git submodule status` shows a `+` prefix: someone already committed and pushed inside the submodule (or it was updated via `git submodule update --remote`), and the parent repo just needs to record the new commit SHA.
    - Confirm the submodule's new commit has actually been pushed to its own remote (`git -C <submodule-path> status` shows "up to date"/no unpushed commits) — never point the pointer at a SHA that doesn't exist on the submodule's remote, or others will fail to fetch it after cloning.
    - Use `git diff --submodule=log -- <submodule-path>` (or a plain `git diff` if `diff.submodule=log` isn't configured) to see which commits are involved, and mention them in the commit body if the range is non-trivial.
    - Stage and commit the pointer bump as its own logical change, separate from unrelated file changes: `git add <submodule-path>`.
