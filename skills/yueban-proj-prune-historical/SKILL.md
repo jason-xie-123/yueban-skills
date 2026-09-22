@@ -84,7 +84,12 @@ SRC_EXTS=(
 )
 
 # 当前维护的 submodule：从 .gitmodules 动态取得（排除 deprecated/ 前缀），不要硬编码模块名
-mapfile -t ACTIVE_SUBMODULES < <(git config -f .gitmodules --get-regexp '\.path$' 2>/dev/null | awk '{print $2}' | grep -v '^deprecated/')
+# 不用 mapfile/readarray（bash 4+ 才有；macOS 自带 /bin/bash 是 3.2，没有这个内置命令，会直接报
+# command not found）——改用 while read 循环拼数组，bash 3.2 和更新的 bash 都能跑
+ACTIVE_SUBMODULES=()
+while IFS= read -r sm; do
+  ACTIVE_SUBMODULES+=("$sm")
+done < <(git config -f .gitmodules --get-regexp '\.path$' 2>/dev/null | awk '{print $2}' | grep -v '^deprecated/')
 for sm in "${ACTIVE_SUBMODULES[@]}"; do
   git -C "$sm" ls-files -- "${SRC_EXTS[@]}" \
     | grep -vE '^\.(claude|codex|gemini|agents)/' \
