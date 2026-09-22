@@ -1,6 +1,6 @@
 ---
-name: yueban-loop-openspec
-description: '把一个 Goal 变成一个无人值守、自驱动的 OpenSpec 循环：动态挑选下一个价值最高的 change，进行 propose/plan，实现它，用一个全新的独立 agent 验证它，归档它，并判断整个 goal 是否完成——如此重复，直到 DONE 或某个护栏暂停它以供人工审阅。仅限 Claude Code：与内置的 /loop 技能（用于调度）以及 PushNotification（用于提醒）组合使用。只在明确调用时使用——用 "/yueban-loop-openspec <目标...>" 启动，用 "/yueban-loop-openspec continue" 或裸的 "/yueban-loop-openspec" 恢复，用 "/loop /yueban-loop-openspec <目标...>" 进行完全无人值守的运行。要求目标项目已经初始化过 OpenSpec（openspec init，默认的 core profile 就够）——本技能不负责为项目引导安装 OpenSpec 本身。**注意：本技能在每个检查点会自动 commit 并 push 到 origin（与本仓库另外两个 spec 流程 skill——yueban-spec-single-change-flow、yueban-spec-roadmap-flow——"只 commit 不 push"的约定不同），因为它是设计给完全无人值守运行的；不想自动 push 到远端就不要用它。**'
+name: yueban-spec-loop
+description: '把一个 Goal 变成一个无人值守、自驱动的 OpenSpec 循环：动态挑选下一个价值最高的 change，进行 propose/plan，实现它，用一个全新的独立 agent 验证它，归档它，并判断整个 goal 是否完成——如此重复，直到 DONE 或某个护栏暂停它以供人工审阅。仅限 Claude Code：与内置的 /loop 技能（用于调度）以及 PushNotification（用于提醒）组合使用。只在明确调用时使用——用 "/yueban-spec-loop <目标...>" 启动，用 "/yueban-spec-loop continue" 或裸的 "/yueban-spec-loop" 恢复，用 "/loop /yueban-spec-loop <目标...>" 进行完全无人值守的运行。要求目标项目已经初始化过 OpenSpec（openspec init，默认的 core profile 就够）——本技能不负责为项目引导安装 OpenSpec 本身。**注意：本技能在每个检查点会自动 commit 并 push 到 origin（与本仓库另外两个 spec 流程 skill——yueban-spec-single-change-flow、yueban-spec-roadmap-flow——"只 commit 不 push"的约定不同），因为它是设计给完全无人值守运行的；不想自动 push 到远端就不要用它。**'
 allowed-tools: Bash, Read, Write, Edit, Skill, Agent, PushNotification
 ---
 
@@ -44,17 +44,17 @@ APPLY → VERIFY → ARCHIVE（或 FIX_RETRY）→ CHECK_GOAL_DONE，如此重�
 
 ```
 # 启动，无人值守（包在内置的 /loop 技能里，自动调度）：
-/loop /yueban-loop-openspec 目标：<一句话目标>。背景：<约束、现状、期望方向——一次性交代完>。完成标准：<怎么算彻底做完了>
+/loop /yueban-spec-loop 目标：<一句话目标>。背景：<约束、现状、期望方向——一次性交代完>。完成标准：<怎么算彻底做完了>
 
 # 启动，手动逐轮进行（每一轮由你自己重新调用）：
-/yueban-loop-openspec 目标：<...>。背景：<...>。完成标准：<...>
+/yueban-spec-loop 目标：<...>。背景：<...>。完成标准：<...>
 
 # 恢复——从状态文件中读回一切信息，无需重新解释：
-/yueban-loop-openspec continue
-/yueban-loop-openspec
+/yueban-spec-loop continue
+/yueban-spec-loop
 
 # 在不重启当前运行的情况下，向其追加新背景：
-/yueban-loop-openspec <要追加的新背景或说明>
+/yueban-spec-loop <要追加的新背景或说明>
 ```
 
 ## 步骤 1 —— 查找或创建状态文件
@@ -64,7 +64,7 @@ ls openspec/loop-engineering/*/state.md 2>/dev/null
 ```
 
 对用户消息分类：如果包含 目标/背景/完成标准（新的目标文本），归为**启动**；否则归为
-**continue/append**（裸的 `/yueban-loop-openspec`、`/yueban-loop-openspec continue`，或任意补充背景）。
+**continue/append**（裸的 `/yueban-spec-loop`、`/yueban-spec-loop continue`，或任意补充背景）。
 这是一个启发式判断，不是字面字符串匹配——消息含糊时用你自己的判断。
 
 - **启动，且本项目中另一个 `state.md` 已经是 `status: running` 或 `status: paused`，对应
@@ -101,7 +101,7 @@ ls openspec/loop-engineering/*/state.md 2>/dev/null
     算完成了，设置 `status: done` 并停止（不需要重新进入状态机）。
   - 不要在用户没有表态的情况下静默恢复一个暂停的运行——这正是护栏存在的全部意义。
 - **Continue/append，且没有任何 `state.md` 是 `status: running` 或 `status: paused`**：
-  告诉用户本项目中没有活跃的 `yueban-loop-openspec` 运行，以 `LOOP_STATUS: PAUSED` 结束本轮
+  告诉用户本项目中没有活跃的 `yueban-spec-loop` 运行，以 `LOOP_STATUS: PAUSED` 结束本轮
   （无事可做——见"与 `/loop` 组合"），然后停止。
 - **Continue/append，且有多个 `state.md` 是 `status: running` 或 `status: paused`**：列出它们的
   `goal_slug` 和状态，询问用户指的是哪一个，以 `LOOP_STATUS: PAUSED` 结束本轮，停止直到他们
@@ -159,7 +159,7 @@ max_changes: 20         # 如果用户在启动时要求了不同上限，在此
 无法再拆出新的 change"，但完成标准写的东西代码里还没有）：这不是 `CHECK_GOAL_DONE` 该判定
 "done"的场景（"done"要求标准真的已满足），也不能假装找到一个凑数的 change 硬做下去。把
 `status` 设为 `paused`，在 Iteration Log 追加一行说明"探索未能给出下一个 change"及具体原因，
-发 `PushNotification`（消息类似 `loop-openspec paused: EXPLORE_NEXT found no viable next
+发 `PushNotification`（消息类似 `spec-loop paused: EXPLORE_NEXT found no viable next
 change for '<goal_slug>' but completion criteria aren't met yet. Needs scope/goal review.`），
 以 `LOOP_STATUS: PAUSED` 结束本轮——这种情况通常意味着 goal 描述本身需要用户重新拆解或收窄，
 不是循环能自己解决的。
@@ -227,7 +227,7 @@ End your report with exactly one line: "VERDICT: PASS" if you found zero CRITICA
 "VERDICT: FAIL" if you found one or more.
 ```
 
-把结果映射到 `yueban-loop-openspec` 自己的判定：**PASS** 当且仅当子代理报告的最后一行是
+把结果映射到 `yueban-spec-loop` 自己的判定：**PASS** 当且仅当子代理报告的最后一行是
 `VERDICT: PASS`（零个 CRITICAL 问题）。否则为 **FAIL**。无论哪种结果，都把
 CRITICAL/WARNING/SUGGESTION 条目记录到 Iteration Log 的 Notes 列中。
 
@@ -277,7 +277,7 @@ git push || git push -u origin HEAD
 
   ```
   PushNotification({
-    message: "loop-openspec paused: <change-name> failed verification 3x — <one-line reason>. Needs your review.",
+    message: "spec-loop paused: <change-name> failed verification 3x — <one-line reason>. Needs your review.",
     status: "proactive"
   })
   ```
@@ -294,7 +294,7 @@ git push || git push -u origin HEAD
 
   ```
   PushNotification({
-    message: "loop-openspec done: '<goal_slug>' complete — <N> changes archived. Review before merging further.",
+    message: "spec-loop done: '<goal_slug>' complete — <N> changes archived. Review before merging further.",
     status: "proactive"
   })
   ```
@@ -309,7 +309,7 @@ git push || git push -u origin HEAD
 
   ```
   PushNotification({
-    message: "loop-openspec paused: hit max_changes (<N>) without meeting completion criteria for '<goal_slug>'. Review scope.",
+    message: "spec-loop paused: hit max_changes (<N>) without meeting completion criteria for '<goal_slug>'. Review scope.",
     status: "proactive"
   })
   ```
@@ -322,13 +322,13 @@ git push || git push -u origin HEAD
 
 本技能自己从不调用 `ScheduleWakeup`——它每次调用只运行状态机的一轮迭代，并以上述三条
 哨兵行之一结束本轮。要实现无人值守运行，由用户把它包在内置的 `/loop` 技能里
-（`/loop /yueban-loop-openspec <goal>`），由后者负责实际的调度决策。让哨兵行始终是本轮的最后一行，
+（`/loop /yueban-spec-loop <goal>`），由后者负责实际的调度决策。让哨兵行始终是本轮的最后一行，
 以便清晰可辨。
 
 **已于 2026-07-06 验证：** `/loop` 自己的动态模式说明中明确写道，要停止循环，它会省略
 `ScheduleWakeup` 调用——它不会自行重新触发。既然本技能从不自己调用 `ScheduleWakeup`，
 `/loop` 就不会在 `DONE` 或 `PAUSED` 的一轮之后安排下一次触发。**尚未做**的是一次实际把
-`yueban-loop-openspec` 端到端包在 `/loop` 里、有人监督的运行（这两个机制是分别验证的，还没有在
+`yueban-spec-loop` 端到端包在 `/loop` 里、有人监督的运行（这两个机制是分别验证的，还没有在
 同一次运行中一起验证过）——在小目标上先做一次有人监督的运行，验证通过后再在大目标上信任
 它（见本技能的设计文档
 `docs/superpowers/specs/2026-07-06-loop-openspec-design.md` 中的 Testing plan）。
