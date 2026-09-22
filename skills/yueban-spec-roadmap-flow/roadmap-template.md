@@ -16,7 +16,7 @@
 
 ## 实施方式
 
-单个变更走 `/opsx:apply <change-name>`（或直接要求实施某个变更）；多个 change 一次性连续推进走 `yueban-spec-roadmap-flow`。新的待实施 change 出现后，在此按依赖关系与风险等级排定实施顺序，实施完成后移入对应 change 归档目录（`openspec/changes/archive/`），本文件不保留已归档 change 的历史记录（详见各 change 的 commit 历史与 `openspec/changes/archive/` 下的完整产出物）。
+单个变更走 `yueban-spec-single-change-flow`（校验 spec 文档 → `openspec-apply-change` 实施 → archive → 提交的完整生命周期，明确点名该 skill 或直接要求"推进这个 change"触发）；**不要用内置的 `/opsx:apply <change-name>`**——那条命令只做实施，会跳过这套流程的校验轮次/archive/日志追加/commit 环节。多个 change 一次性连续推进走 `yueban-spec-roadmap-flow`。新的待实施 change 出现后，在此按依赖关系与风险等级排定实施顺序，实施完成后移入对应 change 归档目录（`openspec/changes/archive/`），本文件不保留已归档 change 的历史记录（详见各 change 的 commit 历史与 `openspec/changes/archive/` 下的完整产出物）。
 
 ## 已解决的问题
 

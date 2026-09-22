@@ -20,15 +20,28 @@
 // resume purposes, which is its own implementation detail, not something this skill manages).
 //
 // Do NOT try to parameterize CHANGE via Workflow's `args` at runtime instead of substituting
-// it into the script text — an intermittent template-substitution bug has been observed where
-// an agent's prompt receives the literal string "undefined" instead of the change name.
-// Substituting the literal directly into the script text removes that ambiguity entirely.
+// it into the script text. Substituting the literal directly into the script text keeps this
+// script fully self-contained — replaying the exact same text on a different session/machine
+// reproduces the exact same behavior with no dependency on how `args` gets threaded through.
+// (An earlier version of this comment claimed `args` intermittently arrived as the literal
+// string "undefined" due to a "template-substitution bug" — per Workflow's actual semantics,
+// `args` is exposed to the script as a plain JS value, not interpolated into the script text,
+// so that specific mechanism doesn't hold up and was never independently confirmed. The
+// literal-substitution approach is kept anyway because self-containment is reason enough; if
+// a real `args` issue is ever confirmed, replace this note with the verified cause.)
 
 export const meta = {
   name: 'spec-cycle-CHANGE_NAME_PLACEHOLDER',
   description: '单个 openspec change 在实施前的 spec 文档校验循环：round=[并行只读多角度评审 proposal/design/tasks/specs]→[单一顺序修复agent，只改这几份文档]，收敛即停（最少1轮）最多5轮。不实施代码、不跑构建/测试命令——实施是本模板之外的独立步骤（openspec-apply-change）。',
+  // 必须和运行时 phase(`Round${round}`) 实际用到的标题逐一对应（Workflow 要求精确匹配才能分组），
+  // 不能只写一个笼统的 'Round' —— MAX_ROUNDS 是编译期已知的常量（见下方），这里按它的上限把
+  // 每一轮可能用到的标题都列全；循环提前收敛、后面的轮次没跑到时，对应的 phase 自然不会被用到。
   phases: [
-    { title: 'Round' },
+    { title: 'Round1' },
+    { title: 'Round2' },
+    { title: 'Round3' },
+    { title: 'Round4' },
+    { title: 'Round5' },
   ],
 }
 
@@ -41,6 +54,8 @@ const SKIP_NOTE = ''
 
 // 已拍板：MIN_ROUNDS=1（一轮 0 问题就立刻停，不强制凑轮次）、MAX_ROUNDS=5（硬上限）。
 // 不要不问用户就改这两个数字——如果用户当次给出不同要求，以当次为准。
+// 改 MAX_ROUNDS 时必须同步改上面 meta.phases 里的 Round1..RoundN 列表，
+// 让它跟这里的上限保持一致（meta 是纯字面量，不能引用这个常量）。
 const MIN_ROUNDS = 1
 const MAX_ROUNDS = 5
 

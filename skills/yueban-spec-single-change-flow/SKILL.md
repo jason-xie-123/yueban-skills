@@ -2,7 +2,8 @@
 name: yueban-spec-single-change-flow
 description: 只有当用户用自己的话明确、直接要求把本仓库里某一个 pending 的 OpenSpec change 推进到完成时才调用（比如"推进下一个 spec"/"跑一下 spec 流程"/"用 yueban-spec-single-change-flow 跑一下"/直接点名某个 change 要求推进完成）。不要从一般性的 OpenSpec 相关讨论、提到 ROADMAP.md 或 openspec/changes/、或任何间接/启发式信号里推断要用这个 skill——它会触发多 agent workflow 和真实的 commit（不自动 push），必须由用户主动触发，不能靠 AI 推断。不确定用户是不是这个意思时，先问，不要直接调用。
 license: MIT
-compatibility: Requires the openspec CLI, git, the openspec-apply-change skill at .agents/skills/openspec-apply-change/SKILL.md (invoked via the Skill tool; do not confuse with the built-in opsx:apply skill), the AskUserQuestion tool, and the Workflow tool (multi-agent orchestration).
+compatibility: 'Requires the openspec CLI (on PATH), git, the openspec-apply-change skill at .claude/skills/openspec-apply-change/SKILL.md (installed by `openspec init`/`openspec update`; invoked via the Skill tool, e.g. `Skill({skill: "openspec-apply-change"})` — do not confuse with the built-in opsx:apply skill), the AskUserQuestion tool, and the Workflow tool (multi-agent orchestration).'
+allowed-tools: Bash, Read, Edit, Grep, Glob, Skill, Workflow, AskUserQuestion
 ---
 
 # yueban 项目 OpenSpec 推进流程
@@ -12,7 +13,7 @@ compatibility: Requires the openspec CLI, git, the openspec-apply-change skill a
 **校验(review)与实施(apply)是两个先后独立的阶段，不要混为一谈**：
 
 - **第一步的多轮校验循环审查的是 spec 文档本身**（`proposal.md`/`design.md`/`tasks.md`/`specs/**/*.md`）——这几份文档内部是否自洽、里面对代码库现状的假设是否还成立、任务拆分是否还对应当前代码结构。这一步发生在实施之前，此时 `tasks.md` 里的任务大概率还没做，**审查对象是文档描述本身，不是实施结果**，修复 agent 只改这几份 markdown 文档，不碰其他任何东西。
-- **第二步的实施由标准的 [`openspec-apply-change`](../openspec-apply-change/SKILL.md) skill 完成**，把 `tasks.md` 里的 `- [ ]` 逐条变成真实代码/文档产出。`tasks.md` 中（不限于末尾，验证类任务在实践中可能散落在功能任务附近，只有最终的"跑全量验证命令"收尾任务通常在末尾）按 `openspec/config.yaml` 规则本就要求包含真实的验证类任务，具体是什么验证命令由该 change 自己的 `tasks.md` 决定，这些验证命令本身就是 tasks.md 的一部分，会在这一步被 `openspec-apply-change` 自然执行到——**不需要在它之外再单独安排一轮"门禁验证"**。
+- **第二步的实施由标准的 `openspec-apply-change` skill 完成**（安装在目标项目的 `.claude/skills/openspec-apply-change/SKILL.md`，由 `openspec init`/`openspec update` 生成，不在本仓库里，通过 `Skill` 工具按名调用，不是相对路径引用），把 `tasks.md` 里的 `- [ ]` 逐条变成真实代码/文档产出。`tasks.md` 中（不限于末尾，验证类任务在实践中可能散落在功能任务附近，只有最终的"跑全量验证命令"收尾任务通常在末尾）按 `openspec/config.yaml` 规则本就要求包含真实的验证类任务，具体是什么验证命令由该 change 自己的 `tasks.md` 决定，这些验证命令本身就是 tasks.md 的一部分，会在这一步被 `openspec-apply-change` 自然执行到——**不需要在它之外再单独安排一轮"门禁验证"**。
 - apply 完成、`tasks.md` 全部勾选后，**不再跑第二轮 review 复核实施质量**，直接进入第三步 `openspec validate` + archive。
 
 ## 什么时候才能调用这个 skill
@@ -51,6 +52,7 @@ compatibility: Requires the openspec CLI, git, the openspec-apply-change skill a
 
 ## 前置检查
 
+- 确认 `openspec` 命令本身在 PATH 上（`command -v openspec`）——第三步的 `openspec validate`/`openspec archive`、以及委托给 `openspec-apply-change` 的实施步骤都依赖这个二进制，缺了它会在流程跑到一半才报错，不如提前发现，向用户说明并停下。
 - 读 `openspec/config.yaml`：里面的 `rules`（`proposal`/`design`/`specs`/`tasks`）是本仓库对 OpenSpec artifacts 的强制约定（如语言、验证方式、前端改动是否要求端到端测试等），第一步的四个评审角度和修复 agent、第二步的 `openspec-apply-change` 实施都要以它为准绳，而不是只凭经验判断。
 - `git status --short` 确认工作区干净，`git fetch origin main` 确认本地与远端同步，避免在过期代码上开工。
 - 如果发现远端有本次会话不知情的新提交（尤其是大规模重构、或删除了 `openspec/` 下的目录），先向用户说明情况，不要在不确定的地基上继续；用户明确说"不用管，直接拉最新代码"就照做，不要反复追问。
@@ -80,13 +82,13 @@ compatibility: Requires the openspec CLI, git, the openspec-apply-change skill a
 
 用法：`Read` 这个模板文件的内容，在你自己的上下文里把其中的 `CHANGE_NAME_PLACEHOLDER`（出现两处：`meta.name` 和 `const CHANGE = '...'`）替换成实际 change 名的字面量，然后把替换后的完整脚本文本通过 `Workflow` 工具的 `script` 参数直接传入（不要用 `scriptPath` 指向仓库里的模板原文——那份文件本身带着占位符，字面量不替换就跑不对；也不要自己先把替换后的内容写成一个新文件再用 `scriptPath` 指向它，没有必要多这一步文件落地）。`Workflow` 工具本身会把每次调用的脚本自动持久化到会话目录、并在结果里返回 `scriptPath`——那是工具自己的实现细节，用于本次调用之后的 resume，不是本 skill 需要维护的产物。
 
-不要依赖 Workflow 的 `args` 运行时传参来传 change 名——曾观察到间歇性的模板变量替换异常，具体表现为 agent 收到的 prompt 里 change 名被替换成字面量 `"undefined"`；直接把 change 名字面量写进脚本文本里传给 `script` 参数，杜绝这类歧义。
+不要依赖 Workflow 的 `args` 运行时传参来传 change 名——直接把 change 名字面量写进脚本文本里传给 `script` 参数，让脚本本身自包含，换一个 session/机器重放同一段脚本文本时行为完全确定，不依赖 `args` 在运行时怎么被传入。（早期版本这里的理由是"观察到 args 间歇性收到字面量 `undefined`，疑似模板替换异常"——但 Workflow 的 `args` 语义是把值原样作为 JS 值暴露给脚本，并不经过脚本文本的模板替换，这个具体机制站不住，也未经独立复现确认；保留字面量替换的做法本身没问题，理由改成"自包含更可靠"，如果之后真的复现出 `args` 的问题，再把这里换成经过验证的实际原因。）
 
 `MIN_ROUNDS`/`MAX_ROUNDS` 模板里已经是 1/5，一般不需要改；如果用户当次明确要求不同的轮次策略，替换文本时一并改这两个值。
 
 ## 第二步：实施（openspec-apply-change）
 
-第一步收敛（或撞上限带着已知 minor 缺口继续）后，spec 文档本身已经核实过是准确的，现在用 `Skill` 工具调用 [`openspec-apply-change`](../openspec-apply-change/SKILL.md)（传入 change 名），让它按自己的"逐任务实施循环"把 `tasks.md` 里的任务全部做完。
+第一步收敛（或撞上限带着已知 minor 缺口继续）后，spec 文档本身已经核实过是准确的，现在用 `Skill` 工具调用 `openspec-apply-change`（`Skill({skill: "openspec-apply-change"})`，传入 change 名），让它按自己的"逐任务实施循环"把 `tasks.md` 里的任务全部做完。
 
 - 先用 `openspec instructions apply --change "<name>" --json` 看任务级 Progress 的 `remaining`/`complete` 计数与 `state`；如果已经是 `state: "all_done"`，说明上次会话已经实施过，跳过调用，直接进入第三步（注意这和"前置检查"一节用的 `openspec status --change "<name>" --json` 是两个不同命令：`status` 只报告 `isComplete` 这类 artifact 齐全性，不含任务级进度字段，任务级 `remaining`/`complete`/`state: "all_done"` 只出现在 `instructions apply` 的输出里）。
 - `openspec-apply-change` 会自己反复循环直到 `all_done` 或遇到需要人拍板的阻塞（任务描述不清楚、实施中发现设计问题、报错）——**遇到阻塞就按它自己的 Guardrails 停下来问用户，不要替它猜答案硬推进**，这和本 skill"什么时候不适合用"一节里"Open Questions 未定案先问用户"的原则是一致的。

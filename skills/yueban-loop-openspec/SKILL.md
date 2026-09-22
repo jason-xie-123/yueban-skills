@@ -27,6 +27,7 @@ APPLY → VERIFY → ARCHIVE（或 FIX_RETRY）→ CHECK_GOAL_DONE，如此重�
 - **目标项目必须已经在其默认 profile 下初始化过 OpenSpec。** 做任何事之前先检查：
 
   ```bash
+  command -v openspec >/dev/null || { echo "openspec CLI not on PATH. Install it (see openspec docs), then re-invoke this skill."; exit 1; }
   test -d openspec || { echo "OpenSpec not found. Run: openspec init --tools claude (or npx @fission-ai/openspec@latest init --tools claude), then re-invoke this skill."; exit 1; }
   for s in openspec-explore openspec-propose openspec-apply-change; do
     test -d ".claude/skills/$s" || { echo "Missing .claude/skills/$s — re-run: openspec update --force"; exit 1; }
@@ -153,6 +154,15 @@ max_changes: 20         # 如果用户在启动时要求了不同上限，在此
 `openspec-explore` 通常是与人类的对话式来回。在无人值守运行时（没有人在场回答追问），不要
 等待回复——直接从探索结果中综合出你自己具体的决定，选定一个 change 名称；如果有多个候选
 看起来都合理，用 Goal/Completion Criteria/Iteration Log 作为决胜依据。
+
+**探索不出任何候选 change，但 Completion Criteria 显然还没满足**（比如探索结果认为"目标已经
+无法再拆出新的 change"，但完成标准写的东西代码里还没有）：这不是 `CHECK_GOAL_DONE` 该判定
+"done"的场景（"done"要求标准真的已满足），也不能假装找到一个凑数的 change 硬做下去。把
+`status` 设为 `paused`，在 Iteration Log 追加一行说明"探索未能给出下一个 change"及具体原因，
+发 `PushNotification`（消息类似 `loop-openspec paused: EXPLORE_NEXT found no viable next
+change for '<goal_slug>' but completion criteria aren't met yet. Needs scope/goal review.`），
+以 `LOOP_STATUS: PAUSED` 结束本轮——这种情况通常意味着 goal 描述本身需要用户重新拆解或收窄，
+不是循环能自己解决的。
 
 在进入 `PROPOSE_PLAN` 之前，用 2-4 句话覆写状态文件中的 `# Carry-forward notes from last EXPLORE`
 部分：你即将做什么、为什么；在仓库中注意到的、与本次相关但超出本次范围的任何情况；以及任何
@@ -330,4 +340,3 @@ git push || git push -u origin HEAD
 - 没有 git worktree 隔离。
 - 不支持多 goal 并发。
 - 没有比同一模型更强的验证机制。
-</content>
