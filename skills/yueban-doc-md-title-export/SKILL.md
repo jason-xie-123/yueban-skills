@@ -39,7 +39,8 @@ description: 仅当用户明确指名此技能时使用（例如"用 yueban-doc-
 
 | 字段 | 提取方法 |
 |---|---|
-| `current_title` | 第一个 `# xxx` 行的 H1 文本；若无 H1，记为 `null` |
+| `all_h1s` | 正文（frontmatter 之后）里**全部**以单个 `#` 开头的行，按出现顺序列出；用于判断"是否有且仅有一个 H1" |
+| `current_title` | `all_h1s` 的第一项；若 `all_h1s` 为空，记为 `null` |
 | `current_filename` | 不含扩展名的基础文件名，例如 `My_Doc-v2.md` → `My_Doc-v2` |
 | `inferred_topic` | 读取正文前 30%，用一句话总结主题（后续用于判断标题是否"严重偏离"） |
 
@@ -47,15 +48,18 @@ description: 仅当用户明确指名此技能时使用（例如"用 yueban-doc-
 
 ### 步骤 2 · 标题判定 + 最小改动
 
-判定流程：
+判定流程（先判 H1 数量，再判第一个 H1 的措辞质量——目标"有且仅有一个合理的顶层标题"拆成这两件独立的事，不能只做后者）：
 
 ```
-当前是否存在 H1？
-├─ 否 → 添加一个 H1（根据 inferred_topic 或文件名生成，交给用户确认）
-└─ 是 → H1 是否与正文主题"严重偏离"？
-        ├─ 否 → 不改动（即使措辞可以更好也保留）
-        └─ 是 → 提出改写建议，并说明理由
+all_h1s 里有几个 H1？
+├─ 0 个 → 添加一个 H1（根据 inferred_topic 或文件名生成，交给用户确认）
+├─ 1 个 → current_title 是否与正文主题"严重偏离"？
+│         ├─ 否 → 不改动（即使措辞可以更好也保留）
+│         └─ 是 → 提出改写建议，并说明理由
+└─ ≥2 个 → 严重偏离，进入"多个 H1 的处理"（见下方），不再单独判断第一个 H1 的措辞
 ```
+
+**多个 H1 的处理**：把 `all_h1s` 全部列给用户看（各自的行号 + 文本），提出方案——通常是"保留最能代表全文主题的一个（不一定是第一个），其余降级为 `##` 或删除"，具体保留哪个、其余怎么处理，交给用户在步骤 4 确认，不要默认"保留第一个、其余不管"或"只改第一个"。
 
 **"严重偏离"的判定标准**（**满足任意一条**即视为严重）：
 
@@ -101,7 +105,7 @@ description: 仅当用户明确指名此技能时使用（例如"用 yueban-doc-
 ```
 ## 现状
 
-- 当前标题：{current_title 或 "（无 H1）"}
+- 当前标题：{current_title 或 "（无 H1）"}（若 all_h1s 有 ≥2 项，改为列出全部：{逐行列出 all_h1s 及其行号}）
 - 当前文件名：{current_filename}.md
 - 正文主题：{inferred_topic}
 
@@ -124,7 +128,7 @@ description: 仅当用户明确指名此技能时使用（例如"用 yueban-doc-
 按已确认的方案：
 
 1. **更新 H1**：使用 Edit 工具替换，或在文件顶部插入 H1
-2. **重命名文件**：`mv old.md new.md`（如适用）
+2. **重命名文件**：`mv "old.md" "new.md"`（如适用）——**两个路径都必须加引号**：步骤 3 专门判定"严重"的触发条件之一就是文件名包含空格（`my doc.md`），不加引号会直接把命令拆成多个参数导致失败或误操作
 3. **导出为 PDF**：见下方"PDF 导出"部分
 
 PDF 文件名取自**最终 H1 文本**，按以下规则做文件系统安全清洗：
@@ -146,7 +150,7 @@ PDF 文件名取自**最终 H1 文本**，按以下规则做文件系统安全�
 | 1 | `pandoc` + LaTeX | `which pandoc xelatex` —— 两者都存在 | 见下方"优先级 1 完整命令"（中文/ASCII 图表内容需要同时具备 mono + CJKmono 字体） |
 | 2 | `pandoc` + `weasyprint` | `which pandoc weasyprint` | `pandoc input.md -o "TITLE.pdf" --pdf-engine=weasyprint` |
 | 3 | `pandoc` + `wkhtmltopdf` | `which pandoc wkhtmltopdf` | `pandoc input.md -o "TITLE.pdf" --pdf-engine=wkhtmltopdf` |
-| 4 | Chrome / Edge headless | macOS 通常预装 Chrome | 先 `pandoc input.md -s -o tmp.html`，再 `"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless --disable-gpu --print-to-pdf="TITLE.pdf" "file://$(pwd)/tmp.html"` |
+| 4 | Chrome / Edge headless | macOS 通常预装 Chrome | 先 `pandoc input.md -s -o tmp.html`，再 `"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless --disable-gpu --print-to-pdf="TITLE.pdf" "file://$(pwd)/tmp.html"`——**导出后必须检查是否带浏览器默认页眉页脚**，见下方"常见错误" |
 | 5 | `npx md-to-pdf` | 需要 Node | `npx --yes md-to-pdf input.md && mv input.pdf "TITLE.pdf"` |
 
 **优先级 1 完整命令**（针对中文文档 + ASCII 拓扑图，网络拓扑类文档的典型形态）：
@@ -198,6 +202,10 @@ frontmatter 中的 `title: xxx` 字段不属于文档正文——有些渲染器
 
 pandoc+xelatex 遇到字体中缺失的字符时，**只会打印 `Missing character` 警告并丢弃该字符——退出码仍是 0**。只检查退出码会漏掉"图表完全破损"这类严重问题。导出后**必须**验证：重定向 `2>warnings.log`，再 `grep -c "Missing character" warnings.log`——非零计数表示有字符被丢弃；用 `grep -oE "U\+[0-9A-F]+"` 查看具体是哪些字符（框线/中文 → 补齐缺失字体后重新导出；只有彩色 emoji → 接受丢失或切换到 Chrome）。
 
+### 优先级 4（Chrome headless）默认带浏览器页眉页脚，不会自动消失
+
+Chrome headless 的 `--print-to-pdf` 默认会在每页加上打印用的页眉页脚（日期时间、页面标题、`file://` 源路径、页码）——实测 `--print-to-pdf-no-header` 这个常见的"应该能关掉"的参数对当前 Chrome 版本**无效**（加不加这个参数产出的 PDF 字节数完全一致），不要假设加了这个参数就干净了。导出后用 `pdftotext TITLE.pdf -` 检查前几行，如果看到日期时间、`file://...`、页码这类内容，说明页眉页脚还在；目前没有可靠的命令行参数能关闭它，如果用户要求"干净"的 PDF（不带浏览器页眉页脚），优先切换回优先级 1-3（pandoc 原生 PDF 引擎，不产生这类内容），或明确告知用户这是优先级 4 兜底路径的已知限制，由用户决定是否接受。
+
 ### 任何探测失败就直接切换下一个引擎
 
 某个 PDF 引擎报错时，**保留 stderr**——不要只看退出码就静默回退。如果多个引擎都失败，把累积的错误展示给用户（通常是同一个根因——缺字体、权限问题、临时 HTML 路径问题——换引擎也解决不了）。
@@ -206,8 +214,8 @@ pandoc+xelatex 遇到字体中缺失的字符时，**只会打印 `Missing chara
 
 | 阶段 | 动作 |
 |---|---|
-| 步骤 1 | 读取 md，提取 current_title / current_filename / inferred_topic |
-| 步骤 2 | 判断 H1：只有缺失或严重偏离才改动 |
+| 步骤 1 | 读取 md，提取 all_h1s（全部 H1，判断数量用）/ current_title（=all_h1s 第一项）/ current_filename / inferred_topic |
+| 步骤 2 | 先判 H1 数量（0 个补一个 / 1 个再判是否严重偏离 / ≥2 个走"多个 H1 的处理"），只有缺失、严重偏离或多个 H1 才改动 |
 | 步骤 3 | 判断文件名：只有含空格/大写/下划线/中文/特殊字符才改动 |
 | 步骤 4 | 以三段式输出现状 + 判定 + 拟议改动，等待确认 |
 | 步骤 5 | 编辑 H1 → mv 重命名 → 探测 PDF 引擎 → 导出 `{title}.pdf` |
