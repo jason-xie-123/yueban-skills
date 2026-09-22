@@ -1,6 +1,6 @@
 ---
 name: yueban-proj-prune-historical
-description: '扫描并清理整个项目（根仓库自身与每个当前维护的 submodule——从 .gitmodules 动态取得、排除 deprecated/ 前缀；根仓库和每个 submodule 一视同仁，用同一套文件类型规则全仓库扫描）中源码注释（Java/TS/JS 的 // /* */ /** */）和 Markdown 文档里记录"历史变更过程"的内容——不论是否 AI 生成，只要是"原本怎样、后来因为 XX 改成怎样""随某次迁移/变更删除""迁移自旧模块""design.md 决策 X"这类历史回溯叙事，源码注释整块删除，Markdown 文档只删历史叙事句子、保留仍然生效的操作指南。用户明确要求清理这类历史注释、或提到"这些注释都是记录变更过程的没必要"时使用。默认排除：deprecated/ 整个目录树、项目明确标注的历史规划归档文档目录、整个 openspec/ 目录树（若项目使用 openspec）、.claude/.codex/.gemini/.agents 四个 agent 工具配置目录整体、.gitignore 里列出的路径（如 node_modules 等，git ls-files 天然不会枚举到）。'
+description: '扫描并清理整个项目（根仓库自身与每个当前维护的 submodule——从 .gitmodules 动态取得、排除 deprecated/ 前缀；根仓库和每个 submodule 一视同仁，用同一套文件类型规则全仓库扫描）中源码注释（覆盖主流常见语言，按注释语法分组：Java/Kotlin/Swift/Go/C/C++/C#/Rust/Scala/Groovy/Dart/TS/JS 等 // 、/* */、/** */ 风格，Python/Ruby/Shell/Perl/R/YAML 等 # 风格，SQL/Lua 等 -- 风格，PowerShell 的 # 与 <# #>，HTML/XML 的 <!-- -->，CSS/SCSS/LESS 的 /* */）和 Markdown 文档里记录"历史变更过程"的内容——不论是否 AI 生成，只要是"原本怎样、后来因为 XX 改成怎样""随某次迁移/变更删除""迁移自旧模块""design.md 决策 X"这类历史回溯叙事，源码注释整块删除，Markdown 文档只删历史叙事句子、保留仍然生效的操作指南。用户明确要求清理这类历史注释、或提到"这些注释都是记录变更过程的没必要"时使用。默认排除：deprecated/ 整个目录树、项目明确标注的历史规划归档文档目录、整个 openspec/ 目录树（若项目使用 openspec）、.claude/.codex/.gemini/.agents 四个 agent 工具配置目录整体、.gitignore 里列出的路径（如 node_modules 等，git ls-files 天然不会枚举到）。'
 allowed-tools: Bash, Read, Edit, Grep, Glob, Agent, AskUserQuestion
 ---
 
@@ -19,7 +19,13 @@ allowed-tools: Bash, Read, Edit, Grep, Glob, Agent, AskUserQuestion
   - `.claude/`、`.codex/`、`.gemini/`、`.agents/` 四个 agent 工具配置目录整体（不论符号链接还是真实安装的 skill 副本）。
   - `.gitignore` 里列出的路径（`node_modules`/`vendor`/`dist`/`build` 等依赖或构建产物目录）——`git ls-files` 天然不会枚举到，不需要额外硬编码目录黑名单。
 - 文件类型：
-  - 源码注释：`.java`、`.ts`、`.tsx`、`.js`、`.jsx` 文件里的 `//`、`/* */`、`/** */`（如果项目主要语言不同，按实际语言的注释语法调整，原理不变）。
+  - 源码注释：覆盖主流常见语言，按注释语法分组（如果项目用到下面没列出的语言，按其注释语法比照补充，原理不变；下面同一分组内的语言用同一套判定规则处理）：
+    - `//`、`/* */`、`/** */`（C 风格）：`.java`、`.kt`、`.kts`、`.swift`、`.go`、`.c`、`.h`、`.cpp`、`.cc`、`.hpp`、`.cs`、`.rs`、`.scala`、`.groovy`、`.dart`、`.ts`、`.tsx`、`.js`、`.jsx`、`.mjs`、`.cjs`
+    - `#`（行注释，无原生块注释）：`.py`、`.rb`、`.sh`、`.bash`、`.zsh`、`.pl`、`.r`、`.yaml`、`.yml`、`.properties`
+    - `--`（行注释；Lua 另有 `--[[ ]]` 块注释）：`.sql`、`.lua`
+    - `#` 与 `<# #>`（块注释）：`.ps1`
+    - `<!-- -->`（块注释）：`.html`、`.xml`
+    - `/* */`（仅块注释）：`.css`、`.scss`、`.less`
   - Markdown 文档：`.md` 文件（README、AGENTS.md 等）正文段落，不限于顶层——任何深度的 `.md` 文件都算。
 - **内容层面明确排除，不清理**（和上面路径层面的排除不是一回事）：
   - `@deprecated`/`@Deprecated` 标注及其说明（对调用方仍有实际指导价值）。
@@ -47,7 +53,7 @@ allowed-tools: Bash, Read, Edit, Grep, Glob, Agent, AskUserQuestion
 
 ## 清理粒度（按文件类型区分，不要混用同一套规则）
 
-- **源码注释**：一个注释块（一条 `//`、一个 `/* */`、一个 `/** */`）只要内容里出现历史叙事，**整块删除**。不做"保留仍然有效的那部分、只删历史部分"的细粒度改写——代码注释块通常短，历史叙事和当前有效信息混在一起很难干净拆句，且删完不影响代码本身的可读性（代码本身不应该靠这种注释才能被理解）。
+- **源码注释**：一个注释块（不论是 `//`/`#`/`--` 风格的一条行注释，还是 `/* */`/`/** */`/`<!-- -->`/`<# #>` 风格的一个块注释，具体按「范围」一节文件类型对应的注释语法判断）只要内容里出现历史叙事，**整块删除**。不做"保留仍然有效的那部分、只删历史部分"的细粒度改写——代码注释块通常短，历史叙事和当前有效信息混在一起很难干净拆句，且删完不影响代码本身的可读性（代码本身不应该靠这种注释才能被理解）。
   - **例外：注释块里混有"载体性不变量/约束"（landmine）时，不能整块删除，要改写成保留该约束、去掉历史叙事的现在时说明。** 判断标准：这条信息如果被删掉，未来有人改代码时会在不知情的情况下悄悄破坏正确性（例如"这个方法必须挂 `@Transactional`，否则并发下会丢更新""这个字段固定为 X，不能走通用解析路径，否则真实数据下会抛异常"），而不是仅仅"读起来方便"。纯粹的背景八卦、施工阶段花絮、决策编号引用不算此类例外，按上面的整块删除处理。这类改写只在真正遇到时做，不要为了"保险"就到处保留。
 - **Markdown 文档**：文档段落通常比代码注释大得多，常见结构是"一句历史背景过渡 + 一大段仍在生效的操作指南"（例如"因为过去 XX 曾导致 YY 问题，现在要求每次都按以下步骤……"）。这种情况**只删历史叙事的句子/小段，保留后面仍然生效的操作指南/规则本身**，不要整节删除。
 
@@ -66,10 +72,21 @@ allowed-tools: Bash, Read, Edit, Grep, Glob, Agent, AskUserQuestion
 ### 第 2 步：枚举并分组文件
 
 ```bash
+# 覆盖「文件类型」一节列出的主流常见语言后缀；项目用到没列出的语言时按其注释语法在这里补充
+SRC_EXTS=(
+  '*.java' '*.kt' '*.kts' '*.swift' '*.go' '*.c' '*.h' '*.cpp' '*.cc' '*.hpp' '*.cs' '*.rs' '*.scala' '*.groovy' '*.dart'
+  '*.ts' '*.tsx' '*.js' '*.jsx' '*.mjs' '*.cjs'
+  '*.py' '*.rb' '*.sh' '*.bash' '*.zsh' '*.pl' '*.r' '*.yaml' '*.yml' '*.properties'
+  '*.sql' '*.lua' '*.ps1'
+  '*.html' '*.xml'
+  '*.css' '*.scss' '*.less'
+  '*.md'
+)
+
 # 当前维护的 submodule：从 .gitmodules 动态取得（排除 deprecated/ 前缀），不要硬编码模块名
 mapfile -t ACTIVE_SUBMODULES < <(git config -f .gitmodules --get-regexp '\.path$' 2>/dev/null | awk '{print $2}' | grep -v '^deprecated/')
 for sm in "${ACTIVE_SUBMODULES[@]}"; do
-  git -C "$sm" ls-files -- '*.java' '*.ts' '*.tsx' '*.js' '*.jsx' '*.md' \
+  git -C "$sm" ls-files -- "${SRC_EXTS[@]}" \
     | grep -vE '^\.(claude|codex|gemini|agents)/' \
     | grep -vE '^openspec/' \
     | sed "s#^#$sm/#"
@@ -78,7 +95,7 @@ for sm in "${ACTIVE_SUBMODULES[@]}"; do
 done
 
 # 根仓库自身：和每个 submodule 用完全相同的文件类型规则，不再只看 README/AGENTS.md/docs/
-git ls-files -- '*.java' '*.ts' '*.tsx' '*.js' '*.jsx' '*.md' \
+git ls-files -- "${SRC_EXTS[@]}" \
   | grep -vE '^\.(claude|codex|gemini|agents)/' \
   | grep -vE '^openspec/'
 # 如果根仓库有已确认的历史规划归档目录，或版本化数据库迁移目录，在这里加 grep -v 排除掉
@@ -86,7 +103,7 @@ git ls-files -- '*.java' '*.ts' '*.tsx' '*.js' '*.jsx' '*.md' \
 
 `grep -vE '^\.(claude|codex|gemini|agents)/'`、`grep -vE '^openspec/'` 分别排除「默认排除」清单里的 agent 工具目录和 openspec/ 目录树——根仓库和每个 submodule 都要排，任何一方独立使用 openspec 都可能有这个目录。
 
-两处都用不带路径前缀的 `'*.md'`（以及各语言的源码后缀）——git pathspec 里不含 `/` 的 glob 会匹配任意深度的路径，不需要额外拼 `**/*.md` 之类的双模式。
+`SRC_EXTS` 里都是不带路径前缀的 glob——git pathspec 里不含 `/` 的 glob 会匹配任意深度的路径，不需要额外拼 `**/*.ext` 之类的双模式。
 
 按以下原则动态分组派发（每组一个子 agent；组数随根仓库/当前 submodule 数量、体量变化，不固定）：
 
