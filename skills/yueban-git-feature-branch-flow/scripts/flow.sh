@@ -418,7 +418,11 @@ cmd_finish() {
       return 1
     fi
     if ! repo_local_branch_exists "$path" "$base"; then
-      echo "BLOCKED: $path has no local branch '$base' to compare '$change_id' against — check the name, or pass --base <branch>." >&2
+      if repo_remote_branch_exists "$path" "$base"; then
+        echo "BLOCKED: $path has no local branch '$base' (it exists on origin) — check it out first (git -C $path checkout $base), then re-run." >&2
+      else
+        echo "BLOCKED: $path has no branch '$base' locally or on origin to compare '$change_id' against — check the name, or pass --base <branch>." >&2
+      fi
       return 1
     fi
     echo "$base"
@@ -534,11 +538,14 @@ cmd_finish() {
     fi
   done < <(list_submodules; echo ".")
   echo
+  if [ "$unresolved" != "0" ]; then
+    echo "Some repos above are BASE UNAVAILABLE — fix that (see BLOCKED messages) and re-run before merging or cleaning up."
+    return 2
+  fi
   echo "Next steps (manual, this tool does not merge for you):"
   echo "  1. For each submodule with real commits: merge/PR '$change_id' into its base branch, then push that base branch."
   echo "  2. In the superproject: 'git add <submodule>' to record the new base-branch pointers, commit, then merge/PR the superproject's '$change_id' into its own base and push."
   echo "  3. Once everything above is merged and pushed, run: $0 finish $change_id --cleanup"
-  [ "$unresolved" = "0" ] || return 2
 }
 
 # --- main --------------------------------------------------------------
