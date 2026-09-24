@@ -1,6 +1,6 @@
 ---
 name: yueban-git-feature-branch-flow
-description: '在带 git submodule 的仓库里按 spec/功能开一条同名分支——父仓库和每个当前维护的 submodule（从 .gitmodules 动态发现，排除 deprecated/ 前缀的历史模块）统一从用户选定的 base 分支（如 main/main-sg，可选，不写死）切出 <change-id> 分支，开发期间用 sync 在多台机器间对齐这个分支（不影响 base 分支本身），提交时编排 yueban-git-commit 按"submodule 先、父仓库后"的顺序逐个提交，收尾时给出合并就绪报告但不自动合并（由用户手动合并/PR），合并完成后可选清理分支。和 yueban-git-safe-sync 的区别：那个管的是 base 分支本身的 pull/push，这个管的是脱离 base 分支的功能分支全生命周期。**仅显式触发**：只有用户明确输入 `/yueban-git-feature-branch-flow`，或明确点名要用这个 skill 时才调用；用户说"开个分支""切个分支""这个 spec 怎么开发"之类的泛化表述不要自动联想到这里，先按普通 git 操作处理或直接追问，除非用户点名。'
+description: '在带 git submodule 的仓库里按 spec/功能开一条同名分支——父仓库和每个当前维护的 submodule（从 .gitmodules 动态发现，排除 deprecated/ 前缀的历史模块）统一从用户选定的 base 分支（项目实际用的哪条都行，不写死）切出 <change-id> 分支，开发期间用 sync 在多台机器间对齐这个分支（不影响 base 分支本身），提交时编排 yueban-git-commit 按"submodule 先、父仓库后"的顺序逐个提交，收尾时给出合并就绪报告但不自动合并（由用户手动合并/PR），合并完成后可选清理分支。和 yueban-git-safe-sync 的区别：那个管的是 base 分支本身的 pull/push，这个管的是脱离 base 分支的功能分支全生命周期。**仅显式触发**：只有用户明确输入 `/yueban-git-feature-branch-flow`，或明确点名要用这个 skill 时才调用；用户说"开个分支""切个分支""这个 spec 怎么开发"之类的泛化表述不要自动联想到这里，先按普通 git 操作处理或直接追问，除非用户点名。'
 allowed-tools: Bash, Skill, AskUserQuestion
 ---
 
@@ -10,7 +10,7 @@ allowed-tools: Bash, Skill, AskUserQuestion
 
 ## 为什么需要这个 skill
 
-用 git submodule 管理多个当前维护模块的仓库，每个 submodule 日常都签出在同一个约定的分支上（比如 `main` 或 `main-sg`，具体叫什么以项目实际约定为准）。`yueban-git-safe-sync` 保证了"多台机器都在这条分支上直接开发"这种场景下 pull/push 不会把 submodule 切成 detached HEAD——但它假设大家都直接在这条 base 分支上提交，多台机器并发改同一条分支本身仍然容易冲突。
+用 git submodule 管理多个当前维护模块的仓库，每个 submodule 日常都签出在同一个约定的分支上（叫什么以项目实际约定为准）。`yueban-git-safe-sync` 保证了"多台机器都在这条分支上直接开发"这种场景下 pull/push 不会把 submodule 切成 detached HEAD——但它假设大家都直接在这条 base 分支上提交，多台机器并发改同一条分支本身仍然容易冲突。
 
 这个 skill 换一种工作方式：**每个 spec/功能都从 base 分支切一条同名子分支去做**（父仓库和涉及的 submodule 各自独立切、靠分支名配对），开发过程中互不干扰 base 分支，做完了人工合并回去。这样多台机器的冲突面从"随时可能撞在一起的 base 分支"缩小到"只在开工/合并这两个时间点需要协调"。
 
@@ -46,7 +46,7 @@ scripts/flow.sh finish <change-id> --cleanup    # 确认已合并后，删除各
 ### 1. 开工（start）
 
 1. 跑 `scripts/flow.sh branches`，拿到父仓库当前有哪些本地分支。
-2. 用 AskUserQuestion 让用户选 base 分支——如果项目里已有一条明显的共享主分支（如 `main`/`main-sg`），把它作为推荐默认选项排第一，除非用户在这轮请求里已经明确说了要基于哪个分支（比如"基于 main 开一个新分支"），那就不用再问。
+2. 用 AskUserQuestion 让用户选 base 分支——如果项目里已有一条明显的共享主分支（可从 `git symbolic-ref refs/remotes/origin/HEAD` 或各仓库当前分支推断），把它作为推荐默认选项排第一，除非用户在这轮请求里已经明确说了要基于哪个分支（比如"基于 xxx 开一个新分支"），那就不用再问。
 3. 跑 `scripts/flow.sh start <change-id> <base-branch>`。
 4. 如果输出 `BLOCKED: ...`（退出码 2）：**不要**自己用别的 git 命令去绕过或"修复"——比如某个仓库当前不在 base 分支上、或者已经存在同名分支。把每条 BLOCKED 原样讲给用户，问清楚想怎么处理，处理完再重新跑。
 5. 成功后简要汇报"`<change-id>` 已经在这几个仓库切好了"，不用整段贴脚本输出。
@@ -71,7 +71,7 @@ scripts/flow.sh finish <change-id> --cleanup    # 确认已合并后，删除各
 ### 4. 收尾（finish）
 
 1. 先跑 `scripts/flow.sh finish <change-id>`（不加 `--cleanup`），拿到一份合并就绪报告：每个仓库有没有实际改动（空分支 vs 有 commits）、是否已推送、是否已经合并进本地的 base 分支。
-2. 如果某个仓库的报告里出现"no recorded base"，说明这个仓库的 base 分支信息没记录下来（比如 `start` 是在另一台机器跑的，这台机器的 git config 里没有），脚本会假设默认值 `main` 并提示——如果实际 base 不是 `main`，要加 `--base <branch>` 重新跑。
+2. 如果某个仓库的报告里出现"no recorded base"，说明这个仓库的 base 分支信息没记录下来（比如 `start` 是在另一台机器跑的，这台机器的 git config 里没有），脚本会退回用该仓库 `origin/HEAD` 指向的分支并提示；如果 `origin/HEAD` 也没设置，脚本会直接 BLOCKED。实际 base 与推断不一致，或被 BLOCKED 时，加 `--base <branch>` 重新跑。
 3. 把报告转述给用户，按这个顺序建议操作（**这几步都是用户手动做，本 skill 不执行**）：
    - 对每个有实际改动的 submodule：把 `<change-id>` 合并/PR 回它自己的 base 分支，推送。
    - 回父仓库：`git add <submodule>` 记录新指针 → 提交（这一步同样可以用 `yueban-git-commit`）→ 把父仓库的 `<change-id>` 合并/PR 回它自己的 base 分支，推送。

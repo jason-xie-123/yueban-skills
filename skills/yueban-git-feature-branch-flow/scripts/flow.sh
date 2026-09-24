@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # yueban-git-feature-branch-flow: start/sync/finish a same-named feature branch
 # across the superproject and every actively-maintained submodule. The base
-# branch (what the feature branches off of — usually main/main-sg, but selectable)
+# branch (what the feature branches off of — whatever the project uses, selectable)
 # is chosen at 'start' time and remembered per (repo, change-id) via git
 # config, so 'sync'/'finish' don't need it repeated. See ../SKILL.md for the
 # full rationale and workflow this script serves.
@@ -23,8 +23,6 @@ set -uo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT" || exit 1
-
-DEFAULT_BASE_BRANCH="main"
 
 # --- helpers -----------------------------------------------------------
 
@@ -108,6 +106,14 @@ repo_set_base() {
 
 repo_get_base() {
   git -C "$1" config --get "flow-base.$2" 2>/dev/null || true
+}
+
+# Best-effort guess of a repo's default branch from origin/HEAD (prints nothing
+# if origin/HEAD isn't set). Never hardcode a branch name here.
+repo_default_base() {
+  local ref
+  ref="$(git -C "$1" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null)" || return 0
+  echo "${ref#origin/}"
 }
 
 require_change_id() {
@@ -400,7 +406,11 @@ cmd_finish() {
     local path="$1"
     if [ -n "$base_override" ]; then echo "$base_override"; return; fi
     local cfg; cfg="$(repo_get_base "$path" "$change_id")"
-    [ -n "$cfg" ] && echo "$cfg" || echo "$DEFAULT_BASE_BRANCH"
+    if [ -n "$cfg" ]; then echo "$cfg"; return; fi
+    local def; def="$(repo_default_base "$path")"
+    [ -n "$def" ] && { echo "$def"; return; }
+    echo "BLOCKED: $path has no recorded base for '$change_id' and origin/HEAD is unset — pass --base <branch>." >&2
+    return 1
   }
 
   if [ "$cleanup" = "1" ]; then
@@ -413,7 +423,7 @@ cmd_finish() {
         can_delete+=("0")
         continue
       fi
-      local base; base="$(resolve_base "$path")"
+      local base; base="$(resolve_base "$path")" || { blocked=1; can_delete+=("0"); continue; }
       repo_fetch_branch "$path" "$base"
       local ab
       if ab="$(repo_ahead_behind_local "$path" "$base")"; then
@@ -455,7 +465,7 @@ cmd_finish() {
     while IFS= read -r path; do
       if [ "${can_delete[$i]:-0}" = "1" ]; then
         if [ "$(repo_branch "$path")" = "$change_id" ]; then
-          local base; base="$(resolve_base "$path")"
+          local base; base="$(resolve_base "$path")" || return 2
           echo "-- $path: currently on '$change_id', switching to '$base' first --"
           run_step "$path: 'git checkout $base' failed unexpectedly. Stopping — already deleted: ${deleted_paths[*]:-<none>}. Resolve $path by hand, then re-run --cleanup for the rest." \
             git -C "$path" checkout "$base" || return 2
@@ -480,15 +490,16 @@ cmd_finish() {
   echo "== $change_id: merge readiness report =="
   echo "(submodules first — merge/push each one's $change_id into its own base before touching the superproject)"
   echo
+  local unresolved=0
   while IFS= read -r path; do
     [ -d "$path" ] || { echo "  $path: MISSING"; continue; }
     if ! repo_local_branch_exists "$path" "$change_id"; then
       echo "  $path: no local '$change_id' branch (run 'sync' first if it exists on origin, or 'start' if not)"
       continue
     fi
-    local base; base="$(resolve_base "$path")"
+    local base; base="$(resolve_base "$path")" || { echo "  $path: BASE UNKNOWN — pass --base <branch>"; unresolved=1; continue; }
     local base_note=""
-    [ -z "$(repo_get_base "$path" "$change_id")" ] && [ -z "$base_override" ] && base_note=" (no recorded base — assuming '$base', pass --base to override)"
+    [ -z "$(repo_get_base "$path" "$change_id")" ] && [ -z "$base_override" ] && base_note=" (no recorded base — using origin/HEAD's '$base', pass --base to override)"
     local commits; commits="$(repo_commits_ahead_of_base "$path" "$change_id" "$base")"
     repo_fetch_branch "$path" "$change_id"
     local pushed="no origin/$change_id yet"
@@ -516,6 +527,7 @@ cmd_finish() {
   echo "  1. For each submodule with real commits: merge/PR '$change_id' into its base branch, then push that base branch."
   echo "  2. In the superproject: 'git add <submodule>' to record the new base-branch pointers, commit, then merge/PR the superproject's '$change_id' into its own base and push."
   echo "  3. Once everything above is merged and pushed, run: $0 finish $change_id --cleanup"
+  [ "$unresolved" = "0" ] || return 2
 }
 
 # --- main --------------------------------------------------------------

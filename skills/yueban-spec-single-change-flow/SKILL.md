@@ -33,7 +33,7 @@ allowed-tools: Bash, Read, Edit, Grep, Glob, Skill, Workflow, AskUserQuestion
 ## 什么时候不适合用这个 skill
 
 - **change 还有未拍板的 Open Questions**（`proposal.md`/`design.md` 里明确写着需要用户决策的分歧点）：先用 `AskUserQuestion` 定案，不要指望校验循环替你做产品/技术方向判断——review agent 只负责核对"文档本身是否自洽、是否还符合代码现状"，不负责"设计本身对不对"这种需要人拍板的问题。
-- **change 本身就是"评估一个外部分支/PR 要不要合并"**（不是从 `openspec/changes/` 里选一个 pending change 来实施）：那是不同的流程（对照检查 main 当天新增的功能是否会被外部分支的旧结构覆盖、migration 编号冲突、语义合并冲突），这个 skill 的四角度只读评审模型不适用，需要人工设计验证方案。
+- **change 本身就是"评估一个外部分支/PR 要不要合并"**（不是从 `openspec/changes/` 里选一个 pending change 来实施）：那是不同的流程（对照检查基线分支当天新增的功能是否会被外部分支的旧结构覆盖、migration 编号冲突、语义合并冲突），这个 skill 的四角度只读评审模型不适用，需要人工设计验证方案。
 - **change 涉及生产数据库 migration**（本条是本仓库 `backend/` 技术栈特有的检查，不是 OpenSpec 通用要求；这个 skill 移植到不用同一套 migration 机制的项目时，应替换成该项目自己的等价风险点，或直接删除本条）：正常走这个 skill 没问题，但额外确认新增的 `.up.sql`/`.down.sql` 编号没有和 `backend/db/migrations/` 目录下已有的最大编号冲突（多条开发线各自独立分配编号是常见冲突源），且 down 迁移经过验证能正确回滚。
 
 ## Change 被放弃/取消时怎么处理
@@ -55,7 +55,7 @@ allowed-tools: Bash, Read, Edit, Grep, Glob, Skill, Workflow, AskUserQuestion
 - 确认 `openspec` 命令本身在 PATH 上（`command -v openspec`）——第三步的 `openspec validate`/`openspec archive`、以及委托给 `openspec-apply-change` 的实施步骤都依赖这个二进制，缺了它会在流程跑到一半才报错，不如提前发现，向用户说明并停下。
 - 确认第二步要用到的 `openspec-apply-change` skill 已安装：`test -d .claude/skills/openspec-apply-change || echo "Missing .claude/skills/openspec-apply-change — re-run: openspec update --force"`。这一步必须在第一步的多轮校验循环（Workflow，高 token 消耗）之前做，否则会等整轮校验跑完、进入第二步才发现装不了，白白浪费掉第一步的开销。
 - 读 `openspec/config.yaml`：里面的 `rules`（`proposal`/`design`/`specs`/`tasks`）是本仓库对 OpenSpec artifacts 的强制约定（如语言、验证方式、前端改动是否要求端到端测试等），第一步的四个评审角度和修复 agent、第二步的 `openspec-apply-change` 实施都要以它为准绳，而不是只凭经验判断。
-- `git status --short` 确认工作区干净，`git fetch origin <base-branch>` 确认本地与远端同步，避免在过期代码上开工（`<base-branch>` 是当前分支所在项目的默认/基线分支——`main`、`main-sg`，或该项目实际使用的名字，不要不假思索写死成 `main`；不确定就先 `git symbolic-ref refs/remotes/origin/HEAD` 或直接问用户）。
+- `git status --short` 确认工作区干净，`git fetch origin <base-branch>` 确认本地与远端同步，避免在过期代码上开工（`<base-branch>` 是当前分支所在项目的默认/基线分支，以该项目实际使用的名字为准，不要写死；不确定就先 `git symbolic-ref refs/remotes/origin/HEAD` 或直接问用户）。
 - 如果发现远端有本次会话不知情的新提交（尤其是大规模重构、或删除了 `openspec/` 下的目录），先向用户说明情况，不要在不确定的地基上继续；用户明确说"不用管，直接拉最新代码"就照做，不要反复追问。
 - 确认要处理的 change 目录下 `proposal.md`/`design.md`/`tasks.md`/`specs/**/*.md` 齐全（`openspec status --change "<name>" --json` 可以查 `isComplete`）。
 
@@ -130,7 +130,7 @@ openspec archive <change-name> -y
 
 ## 第四步：提交（不自动推送）
 
-**只 commit，不 push**——不管当前检出的是 `main`、feature 分支还是某个隔离 worktree，直接在当前分支上提交即可；什么时候把这些提交推到远端、推到哪个分支、要不要先合并回 `main`，都交给用户自己决定，本 skill 不替用户做这个判断。
+**只 commit，不 push**——不管当前检出的是基线分支、feature 分支还是某个隔离 worktree，直接在当前分支上提交即可；什么时候把这些提交推到远端、推到哪个分支、要不要先合并回基线分支，都交给用户自己决定，本 skill 不替用户做这个判断。
 
 ```bash
 git add -A

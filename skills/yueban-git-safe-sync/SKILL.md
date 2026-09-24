@@ -1,6 +1,6 @@
 ---
 name: yueban-git-safe-sync
-description: '在带 git submodule 的仓库里执行 pull 或 push 时，保证每个当前维护的 submodule（从 .gitmodules 动态发现，排除 deprecated/ 前缀的历史/冻结模块）始终停留在其原有分支上（如 main），绝不因为 pull/push 而把 submodule 变成游离 HEAD（detached HEAD）或强制签出到父仓库记录的 SHA。适合"在多台机器上跑同一套项目、submodule 分支状态必须跨机器保持一致"的场景。**仅显式触发**：只有用户明确输入 `/yueban-git-safe-sync`，或明确说要用这个 skill 时才调用；用户只是随口说"pull 一下""push 一下""同步一下代码"这类泛化表述，不要自作主张联想到这个 skill——先按普通 git 操作处理或直接追问，除非用户点名。'
+description: '在带 git submodule 的仓库里执行 pull 或 push 时，保证每个当前维护的 submodule（从 .gitmodules 动态发现，排除 deprecated/ 前缀的历史/冻结模块）始终停留在其原有分支上（具体叫什么以项目实际约定为准），绝不因为 pull/push 而把 submodule 变成游离 HEAD（detached HEAD）或强制签出到父仓库记录的 SHA。适合"在多台机器上跑同一套项目、submodule 分支状态必须跨机器保持一致"的场景。**仅显式触发**：只有用户明确输入 `/yueban-git-safe-sync`，或明确说要用这个 skill 时才调用；用户只是随口说"pull 一下""push 一下""同步一下代码"这类泛化表述，不要自作主张联想到这个 skill——先按普通 git 操作处理或直接追问，除非用户点名。'
 allowed-tools: Bash
 ---
 
@@ -10,13 +10,13 @@ allowed-tools: Bash
 
 ## 为什么需要这个 skill
 
-用 git submodule 管理多个当前维护模块的仓库（哪些 submodule 算"当前维护"，从 `.gitmodules` 里排除路径以 `deprecated/` 开头的条目动态判断——项目如果没有这个约定，就是全部 submodule 都算）。每个 submodule 平时都签出在一个具体分支上（比如 `main`，具体叫什么以项目实际约定为准），而不是 git submodule 的默认状态。
+用 git submodule 管理多个当前维护模块的仓库（哪些 submodule 算"当前维护"，从 `.gitmodules` 里排除路径以 `deprecated/` 开头的条目动态判断——项目如果没有这个约定，就是全部 submodule 都算）。每个 submodule 平时都签出在一个具体分支上（叫什么以项目实际约定为准），而不是 git submodule 的默认状态。
 
 如果项目里存在已停止维护、冻结在某个分支上只作历史参考的 submodule（放在 `deprecated/` 之类的目录下），这类 submodule 天然被上面的动态发现规则排除，不需要本 skill 的"保持分支不掉 detached HEAD"这套保护逻辑，pull/push 时按普通只读参考对待即可——具体某个 submodule 为什么被冻结、后续要不要读它做同步比对，是项目自己的业务判断，不属于本 skill 关心的范围。
 
 风险在于：git 处理 submodule 的默认命令是"按父仓库记录的 SHA 签出"，而不是"按分支拉取"：
 
-- `git submodule update`（以及开了 `submodule.recurse` 之后 `git pull` 隐式触发的那次 update）会把每个 submodule 签出到父仓库索引里记录的那个 commit —— **这个操作本身就会把 submodule 切成 detached HEAD**，哪怕现在正停在 `main-sg` 上。
+- `git submodule update`（以及开了 `submodule.recurse` 之后 `git pull` 隐式触发的那次 update）会把每个 submodule 签出到父仓库索引里记录的那个 commit —— **这个操作本身就会把 submodule 切成 detached HEAD**，哪怕现在正停在某个分支上。
 - 父仓库记录的 submodule 指针经常落后于 submodule 自己分支的最新提交（这是正常现象：你在一台机器上给某个 submodule 提交了新代码，还没来得及回到父仓库 `git add` 记录新指针）。如果直接 `git push` 父仓库而 submodule 的提交还没 push 到它自己的远程，另一台机器 pull 下来后会指向一个远程都没有的 commit。
 
 用户同时在家和公司两台电脑上跑全部功能，一旦某个 submodule 在其中一台变成 detached HEAD 或指向了本地才有的 commit，另一台机器上跑起来的代码版本就对不上，且不容易第一时间发现。这个 skill 就是为了在 pull/push 时主动规避这两类问题。

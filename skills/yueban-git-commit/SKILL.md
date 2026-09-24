@@ -183,5 +183,5 @@ When a submodule is in the "dirty" state from case 1, avoid `git add -A`/`git ad
 - Never modify git global/local config
 - Never run destructive commands (e.g. `--force`, hard reset) without explicit request
 - Never skip hooks (`--no-verify`) unless the user asks for it
-- Never force-push to the repo's base/protected branch (e.g. `main`, `main-sg`, or whatever this repo's default branch actually is — not just the literal names `master`/`develop`)
+- Never force-push to the repo's base/protected branch (whatever this repo's default branch actually is — check `git symbolic-ref refs/remotes/origin/HEAD` — not just the literal names `master`/`develop`)
 - If a commit fails due to hooks, fix the issue first and create a new commit (don't amend)
