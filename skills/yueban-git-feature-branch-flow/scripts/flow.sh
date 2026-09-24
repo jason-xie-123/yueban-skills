@@ -512,7 +512,7 @@ cmd_finish() {
       echo "  $path: no local '$change_id' branch (run 'sync' first if it exists on origin, or 'start' if not)"
       continue
     fi
-    local base; base="$(resolve_base "$path")" || { echo "  $path: BASE UNAVAILABLE — see BLOCKED above, pass --base <branch>"; unresolved=1; continue; }
+    local base; base="$(resolve_base "$path")" || { echo "  $path: BASE UNAVAILABLE — see BLOCKED above"; unresolved=1; continue; }
     local base_note=""
     [ -z "$(repo_get_base "$path" "$change_id")" ] && [ -z "$base_override" ] && base_note=" (no recorded base — using origin/HEAD's '$base', pass --base to override)"
     local commits; commits="$(repo_commits_ahead_of_base "$path" "$change_id" "$base")"
