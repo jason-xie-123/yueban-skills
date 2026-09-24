@@ -71,7 +71,7 @@ scripts/flow.sh finish <change-id> --cleanup    # 确认已合并后，删除各
 ### 4. 收尾（finish）
 
 1. 先跑 `scripts/flow.sh finish <change-id>`（不加 `--cleanup`），拿到一份合并就绪报告：每个仓库有没有实际改动（空分支 vs 有 commits）、是否已推送、是否已经合并进本地的 base 分支。
-2. 如果某个仓库的报告里出现"no recorded base"，说明这个仓库的 base 分支信息没记录下来（比如 `start` 是在另一台机器跑的，这台机器的 git config 里没有），脚本会退回用该仓库 `origin/HEAD` 指向的分支并提示；如果 `origin/HEAD` 也没设置，脚本会直接 BLOCKED。实际 base 与推断不一致，或被 BLOCKED 时，加 `--base <branch>` 重新跑。
+2. 如果某个仓库的报告里出现"no recorded base"，说明这个仓库的 base 分支信息没记录下来（比如 `start` 是在另一台机器跑的，这台机器的 git config 里没有），脚本会退回用该仓库 `origin/HEAD` 指向的分支并提示；如果 `origin/HEAD` 也没设置，脚本会直接 BLOCKED。实际 base 与推断不一致，或被 BLOCKED 时，加 `--base <branch>` 重新跑。base 分支在某个仓库本地不存在（比如名字写错）时同样 BLOCKED，不会当成"空分支"处理。
 3. 把报告转述给用户，按这个顺序建议操作（**这几步都是用户手动做，本 skill 不执行**）：
    - 对每个有实际改动的 submodule：把 `<change-id>` 合并/PR 回它自己的 base 分支，推送。
    - 回父仓库：`git add <submodule>` 记录新指针 → 提交（这一步同样可以用 `yueban-git-commit`）→ 把父仓库的 `<change-id>` 合并/PR 回它自己的 base 分支，推送。

@@ -402,15 +402,26 @@ cmd_finish() {
   local change_id="$1" base_override="$2" cleanup="$3"
   local path
 
+  # Prints the base branch for $path, or returns 1 (with a BLOCKED message on
+  # stderr) if none can be determined or it doesn't exist locally — comparing
+  # against a missing base would otherwise look like an "empty" branch.
   resolve_base() {
-    local path="$1"
-    if [ -n "$base_override" ]; then echo "$base_override"; return; fi
-    local cfg; cfg="$(repo_get_base "$path" "$change_id")"
-    if [ -n "$cfg" ]; then echo "$cfg"; return; fi
-    local def; def="$(repo_default_base "$path")"
-    [ -n "$def" ] && { echo "$def"; return; }
-    echo "BLOCKED: $path has no recorded base for '$change_id' and origin/HEAD is unset — pass --base <branch>." >&2
-    return 1
+    local path="$1" base
+    if [ -n "$base_override" ]; then
+      base="$base_override"
+    else
+      base="$(repo_get_base "$path" "$change_id")"
+      [ -n "$base" ] || base="$(repo_default_base "$path")"
+    fi
+    if [ -z "$base" ]; then
+      echo "BLOCKED: $path has no recorded base for '$change_id' and origin/HEAD is unset — pass --base <branch>." >&2
+      return 1
+    fi
+    if ! repo_local_branch_exists "$path" "$base"; then
+      echo "BLOCKED: $path has no local branch '$base' to compare '$change_id' against — check the name, or pass --base <branch>." >&2
+      return 1
+    fi
+    echo "$base"
   }
 
   if [ "$cleanup" = "1" ]; then
@@ -497,7 +508,7 @@ cmd_finish() {
       echo "  $path: no local '$change_id' branch (run 'sync' first if it exists on origin, or 'start' if not)"
       continue
     fi
-    local base; base="$(resolve_base "$path")" || { echo "  $path: BASE UNKNOWN — pass --base <branch>"; unresolved=1; continue; }
+    local base; base="$(resolve_base "$path")" || { echo "  $path: BASE UNAVAILABLE — see BLOCKED above, pass --base <branch>"; unresolved=1; continue; }
     local base_note=""
     [ -z "$(repo_get_base "$path" "$change_id")" ] && [ -z "$base_override" ] && base_note=" (no recorded base — using origin/HEAD's '$base', pass --base to override)"
     local commits; commits="$(repo_commits_ahead_of_base "$path" "$change_id" "$base")"
