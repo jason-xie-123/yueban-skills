@@ -1,6 +1,6 @@
 ---
 name: yueban-spec-loop
-description: '把一个 Goal 变成一个无人值守、自驱动的 OpenSpec 循环：动态挑选下一个价值最高的 change，进行 propose/plan，实现它，用一个全新的独立 agent 验证它，归档它，并判断整个 goal 是否完成——如此重复，直到 DONE 或某个护栏暂停它以供人工审阅。仅限 Claude Code：与内置的 /loop 技能（用于调度）以及 PushNotification（用于提醒）组合使用。只在明确调用时使用——用 "/yueban-spec-loop <目标...>" 启动，用 "/yueban-spec-loop continue" 或裸的 "/yueban-spec-loop" 恢复，用 "/loop /yueban-spec-loop <目标...>" 进行完全无人值守的运行。要求目标项目已经初始化过 OpenSpec（openspec init，默认的 core profile 就够）——本技能不负责为项目引导安装 OpenSpec 本身。**注意：本技能在每个检查点会自动 commit 并 push 到 origin（与本仓库另外两个 spec 流程 skill——yueban-spec-single-change-flow、yueban-spec-roadmap-flow——"只 commit 不 push"的约定不同），因为它是设计给完全无人值守运行的；不想自动 push 到远端就不要用它。**'
+description: '把一个 Goal 变成一个无人值守、自驱动的 OpenSpec 循环：动态挑选下一个价值最高的 change，进行 propose/plan，实现它，用一个全新的独立 agent 对照 spec 验证并做代码 review，归档它，并判断整个 goal 是否完成——如此重复，直到 DONE 或某个护栏暂停它以供人工审阅。仅限 Claude Code：与内置的 /loop 技能（用于调度）以及 PushNotification（用于提醒）组合使用。只在明确调用时使用——用 "/yueban-spec-loop <目标...>" 启动，用 "/yueban-spec-loop continue" 或裸的 "/yueban-spec-loop" 恢复，用 "/loop /yueban-spec-loop <目标...>" 进行完全无人值守的运行。要求目标项目已经初始化过 OpenSpec（openspec init，默认的 core profile 就够）——本技能不负责为项目引导安装 OpenSpec 本身。**注意：本技能会自动 push 到 origin，无需确认（与本仓库另外两个 spec 流程 skill——yueban-spec-single-change-flow、yueban-spec-roadmap-flow——"只 commit 不 push"的约定不同），因为它是设计给完全无人值守运行的；实现代码经过一次 VERIFY（spec 对照 + 代码 review）和一次修复后，不管是否仍有问题都随归档一起 push——review 从不让循环停下，遗留问题写进 archive 的 commit message 和 Iteration Log 供人事后审阅。不想自动 push 到远端就不要用它。**'
 allowed-tools: Bash, Read, Write, Edit, Skill, Agent, PushNotification
 ---
 
@@ -9,7 +9,7 @@ allowed-tools: Bash, Read, Write, Edit, Skill, Agent, PushNotification
 ## 概述
 
 把一个大的 `Goal` 转化为在 OpenSpec changes 之上自驱动的循环：EXPLORE_NEXT → PROPOSE_PLAN →
-APPLY → VERIFY → ARCHIVE（或 FIX_RETRY）→ CHECK_GOAL_DONE，如此重复，直到满足 goal 的完成
+APPLY → VERIFY →（FAIL 时 FIX 一次）→ ARCHIVE → CHECK_GOAL_DONE，如此重复，直到满足 goal 的完成
 标准，或某个护栏暂停运行等你查看。用户在启动时一次性说明目标、背景和完成标准；之后每次调用
 都从状态文件中读回这些信息，而不需要你重新解释任何内容。
 
@@ -22,8 +22,12 @@ APPLY → VERIFY → ARCHIVE（或 FIX_RETRY）→ CHECK_GOAL_DONE，如此重�
   已派发子代理。技能发现（针对
   `openspec-explore`/`openspec-propose`/`openspec-apply-change`）绑定的是会话实际的
   项目根目录，而不仅仅是工作目录。
-- **在每个检查点直接通过 `git` 提交并推送**（add/commit/push，push 到 origin 不需要额外确认）——本技能不依赖目标项目安装了
-  其他任何技能（比如本仓库自带的 `yueban-git-commit`）。这是本技能区别于 `yueban-spec-single-change-flow`/`yueban-spec-roadmap-flow`（两者都只 commit、不自动 push）的关键差异：本技能是为完全无人值守运行设计的，没人在场按 `yueban-git-commit` 的"push 前确认"逻辑做确认，所以每个检查点的 push 是自动的、无提示的。
+- **在每个检查点直接通过 `git` 提交，并在两个时机自动推送**（add/commit/push，push 到 origin 不需要额外确认）：
+  `PROPOSE_PLAN` 的 spec 文档提交立即推送；`APPLY`/`FIX` 的实现提交先留在本地，`ARCHIVE` 提交之后一起推送。
+  **代码 review 从不让循环停下**：`VERIFY` 只跑一次、`FIX` 只修一次，然后不管是否仍有问题都归档并推送，
+  遗留问题写进 archive 的 commit message（标题带 ` [known gaps]`）和 Iteration Log——本技能的目的是
+  让人不用守在执行过程里，review 的结果留给人事后看。
+  本技能不依赖目标项目安装了其他任何技能（比如本仓库自带的 `yueban-git-commit`）。这是本技能区别于 `yueban-spec-single-change-flow`/`yueban-spec-roadmap-flow`（两者都只 commit、不自动 push）的关键差异：本技能是为完全无人值守运行设计的，没人在场按 `yueban-git-commit` 的"push 前确认"逻辑做确认，所以 push 是自动的、无提示的。
 - **目标项目必须已经在其默认 profile 下初始化过 OpenSpec。** 做任何事之前先检查：
 
   ```bash
@@ -89,13 +93,19 @@ ls openspec/loop-engineering/*/state.md 2>/dev/null
 - **Continue/append，且恰好一个 `state.md` 是 `status: running`**：如果消息中有额外背景，
   追加到 `# Appended Context`；从 Iteration Log 最后停下的地方继续。
 - **Continue/append，且恰好一个 `state.md` 是 `status: paused`**：告诉用户暂停的原因（从
-  Iteration Log 最后一行读取，或从 `total_changes_completed >= max_changes` 这个事实推断），
+  Iteration Log 最后一行读取，或从 `total_changes_completed >= max_changes` 这个事实推断；暂停只会来自
+  EXPLORE_NEXT 找不到下一个 change、PROPOSE_PLAN 产物异常、APPLY 被 guardrail 阻塞、`max_changes`
+  这几个护栏，不会来自代码 review），
   并询问他们想如何处理。如果这条消息里用户还没有给出回答，就以 `LOOP_STATUS: PAUSED` 结束
   本轮并等待——一旦他们回复：
-  - 如果是被"连续 3 次失败"护栏暂停的：一旦用户告诉你改变了什么（他们修复了某个问题，或想
-    再试一次），把 `consecutive_failures` 重置为 0，设置 `status: running`，重新进入
-    `VERIFY`，验证那个卡住的 change（通过 `ls openspec/changes/`（排除 `archive/`）找到它——
-    尚未归档的那个就是进行中的 change）。
+  - **旧版本留下的状态**（frontmatter 里有 `consecutive_failures`，或者 Iteration Log 最后一行是
+    `fix_retry (3/3)`——旧版"连续 3 次 VERIFY 失败"护栏的暂停）：不用等用户表态，这个护栏已经取消。
+    删掉 `consecutive_failures` 字段，补上 `changes_with_known_gaps: 0`（没有的话），设置
+    `status: running`，按新规则处理卡住的 change：它已经被修过多次，不再 `FIX`，直接用 Iteration Log
+    里最后一次验证器的 CRITICAL 作为已知缺口进入 `ARCHIVE`。
+  - 如果是被 EXPLORE_NEXT / PROPOSE_PLAN / APPLY 护栏暂停的：按用户的答复调整后设置
+    `status: running`，从暂停的那一步继续（进行中的 change 通过 `ls openspec/changes/`（排除
+    `archive/`）找到——尚未归档的那个就是）。
   - 如果是被 `max_changes` 护栏暂停的：如果用户给出新的上限，更新 frontmatter 中的
     `max_changes`，设置 `status: running`，转到 `EXPLORE_NEXT`。如果他们表示 goal 就这样
     算完成了，设置 `status: done` 并停止（不需要重新进入状态机）。
@@ -115,8 +125,8 @@ ls openspec/loop-engineering/*/state.md 2>/dev/null
 ---
 goal_slug: add-rate-limiting
 status: running        # running | done | paused
-consecutive_failures: 0
 total_changes_completed: 0
+changes_with_known_gaps: 0   # ARCHIVE 时带着已知缺口归档的 change 数
 max_changes: 20         # 如果用户在启动时要求了不同上限，在此覆盖
 ---
 
@@ -138,17 +148,22 @@ max_changes: 20         # 如果用户在启动时要求了不同上限，在此
 
 # Carry-forward notes from last EXPLORE
 <给下一次 EXPLORE_NEXT 步骤的简短笔记>
+
+# Known gaps
+<ARCHIVE 时追加的已知缺口，一条一行：`- [<change-name>] <缺口>`；只追加，从不被 EXPLORE_NEXT 覆盖。
+后续某个 change 修掉了某条，就把那一行改成 `- ~~[<change-name>] <缺口>~~ fixed by <修掉它的 change-name>`，不删除>
 ```
 
 ## 步骤 2 —— 运行状态机的一轮迭代
 
-`EXPLORE_NEXT → PROPOSE_PLAN → APPLY → VERIFY → (ARCHIVE | FIX_RETRY) → CHECK_GOAL_DONE`
+`EXPLORE_NEXT → PROPOSE_PLAN → APPLY → VERIFY → (FIX，仅 FAIL 时，一次) → ARCHIVE → CHECK_GOAL_DONE`
 
 ### EXPLORE_NEXT
 
 调用 `openspec-explore` 技能（`Skill({skill: "openspec-explore"})`），按以下方式构建问题：
-基于状态文件中的 Goal、Completion Criteria、Iteration Log、Carry-forward notes，以及仓库当前
-状态，下一个价值最高的 OpenSpec change 是什么？没有固定的预先路线图——每次迭代都要重新推导。
+基于状态文件中的 Goal、Completion Criteria、Iteration Log、Carry-forward notes、`# Known gaps`
+里还没划掉的条目，以及仓库当前状态，下一个价值最高的 OpenSpec change 是什么？已知缺口（尤其是
+构建/测试没通过、没修的 CRITICAL）是正当的候选 change——这是它们在无人值守运行中被修掉的途径。没有固定的预先路线图——每次迭代都要重新推导。
 从这一步得出一个简短的 change 名称和 2-4 句理由。
 
 `openspec-explore` 通常是与人类的对话式来回。在无人值守运行时（没有人在场回答追问），不要
@@ -203,29 +218,28 @@ git push || git push -u origin HEAD
 **`openspec-apply-change` 自己按它的 Guardrails 停下来问用户，而不是完成或报错退出时**（它是
 目标项目安装的通用 OpenSpec 技能，不是本技能自己写的，有它自己一套"遇到阻塞就 `AskUserQuestion`
 问人"的规则）：**本技能是无人值守运行，这种情况下不能有人来回答它的问题**——不要替它猜一个答案
-硬答过去，也不要因为它"没有明确失败"就当成完成继续往下走 `VERIFY`。按 `FIX_RETRY` 撞到 3 次上限
-时同样的处理方式：把状态文件中的 `status` 设为 `paused`，在 Iteration Log 追加一行说明
+硬答过去，也不要因为它"没有明确失败"就当成完成继续往下走 `VERIFY`。按 `EXPLORE_NEXT`"探索未能给出下一个
+change"那一段同样的处理方式：把状态文件中的 `status` 设为 `paused`，在 Iteration Log 追加一行说明
 "APPLY 被 openspec-apply-change 自身的 guardrail 阻塞"及它具体想问什么，发 `PushNotification`
 （消息类似 `spec-loop paused: openspec-apply-change blocked on <change-name> waiting for a
 human decision — <one-line summary of its question>. Needs your review.`；无 `PushNotification`
 时改为在本轮输出中醒目打印），以哨兵行 `LOOP_STATUS: PAUSED` 结束本轮。不要提交，也不要继续循环。
 
-**提交：** `openspec-apply-change` 返回后，检查这次调用实际完成了几个任务：
+**提交（只提交，不推送）：** 实现代码在 `VERIFY`（以及需要时的一次 `FIX`）之后随 `ARCHIVE`
+一起推送——这里**不要 `git push`**。`openspec-apply-change` 返回后，检查这次调用实际完成了几个任务：
 
 - **通常情况**（它一次性做完了全部剩余任务）：直接为这次 change 的实现提交一次即可，不必为了凑"每个任务一个 commit"而拆分已经一次性完成的工作：
 
   ```bash
   git add -A
   git commit -m "feat(<scope>): implement <change-name>"
-  git push || git push -u origin HEAD
   ```
 
-- **如果任务是分批完成的**（比如 `openspec-apply-change` 中途报错停下、或你自己分成了多次调用）：每完成一批就提交并推送一次，不要攒到最后一批才做第一次提交；commit message 里必须写清这一批具体完成了 `tasks.md` 里的哪几项（任务编号或简短描述），不要每批都用一模一样的消息——VERIFY 步骤要靠 commit message 反推"这次 change 实际做了什么"，消息不带批次信息会让它没法区分：
+- **如果任务是分批完成的**（比如 `openspec-apply-change` 中途报错停下、或你自己分成了多次调用）：每完成一批就提交一次（同样不推送），不要攒到最后一批才做第一次提交；commit message 里必须写清这一批具体完成了 `tasks.md` 里的哪几项（任务编号或简短描述），不要每批都用一模一样的消息——VERIFY 步骤要靠 commit message 反推"这次 change 实际做了什么"，消息不带批次信息会让它没法区分：
 
   ```bash
   git add -A
   git commit -m "feat(<scope>): implement <change-name> (tasks 1-2 of N)"
-  git push || git push -u origin HEAD
   ```
 
 ### VERIFY
@@ -234,7 +248,9 @@ human decision — <one-line summary of its question>. Needs your review.`；无
 OpenSpec 配置已切换到 `profile: custom` 并在 `workflows` 中加入了 `verify` 时才存在，
 本技能不应要求用户为此做额外配置（已确认：默认的 `core` profile 不包含它）。取而代之，
 用 `Agent` 工具派生一个全新的、独立的子代理——普通的 `general-purpose`，**不是** fork，
-因为它绝不能共享 APPLY 步骤的上下文——使用以下确切提示（填入 `<change-name>`）：
+因为它绝不能共享 APPLY 步骤的上下文。它同时承担两件事：**对照 spec 验证**（任务是否真的做了、
+需求是否满足）和**代码 review**（正确性、安全与健壮性、测试质量）。**只跑一次**，结果只决定要不要
+`FIX` 一次，不决定流程能不能往下走。使用以下确切提示（填入 `<change-name>`）：
 
 ```
 Verify the OpenSpec change "<change-name>" at openspec/changes/<change-name>/ against its own
@@ -243,16 +259,28 @@ made for this change to see what was actually implemented — those commits foll
 "docs: propose <change-name>", "feat(<scope>): implement <change-name>" (the normal case — one
 commit covering everything openspec-apply-change did in a single pass) or
 "feat(<scope>): implement <change-name> (tasks N-M of K)" (the batched case — multiple commits,
-each covering only the tasks it names), and "fix(<scope>): address verifier feedback on
-<change-name>". Don't assume every task has its own commit — reconstruct what was actually done
-from however many commits exist and what each one's message says it covers. If the project has a
-test suite or build command, run it.
+each covering only the tasks it names). Don't assume every task has its own commit — reconstruct what was actually done
+from however many commits exist and what each one's message says it covers. The implementation
+commits are local only (not pushed yet), so read them from the local git log — don't
+compare against origin. If the project has a test suite or build command, run it.
 
-Report every issue you find, each tagged CRITICAL, WARNING, or SUGGESTION:
+Do two things:
+1. Spec verification: every checked-off task in tasks.md was actually done, every requirement /
+   scenario in the spec deltas is met, and the code follows design.md.
+2. Code review of the diff this change introduced (read the surrounding code and callers, not just
+   the diff hunks): correctness (logic errors, edge cases, error handling, concurrency, resource
+   leaks, breaking existing callers), security and robustness (input validation, injection,
+   authz, secrets, unsafe data migrations, missing timeouts), and test quality (new tests actually
+   assert the new behavior; no existing tests skipped, deleted, or loosened).
+
+Report every issue you find, each tagged CRITICAL, WARNING, or SUGGESTION. Every CRITICAL and
+WARNING must state a concrete trigger scenario (what input/state produces what wrong result);
+don't report guesses you can't give a trigger for, and don't escalate style preferences.
 - CRITICAL: a task checked off in tasks.md that wasn't actually done, a spec requirement that isn't
-  met, a failing test/build, or code that contradicts design.md.
+  met, a failing test/build, code that contradicts design.md, a bug that breaks the main path or
+  corrupts data, an exploitable security hole, or existing tests skipped/deleted/loosened to pass.
 - WARNING: a task still unchecked, a minor deviation from spec that doesn't break functionality,
-  missing but non-critical test coverage.
+  a real but edge-case bug, new or changed behavior with no test assertion covering it.
 - SUGGESTION: style or clarity improvements, optional follow-ups.
 
 End your report with exactly one line: "VERDICT: PASS" if you found zero CRITICAL issues, or
@@ -260,17 +288,39 @@ End your report with exactly one line: "VERDICT: PASS" if you found zero CRITICA
 ```
 
 把结果映射到 `yueban-spec-loop` 自己的判定：**PASS** 当且仅当子代理报告的最后一行是
-`VERDICT: PASS`（零个 CRITICAL 问题）。否则为 **FAIL**。无论哪种结果，都把
+`VERDICT: PASS`（零个 CRITICAL 问题），否则为 **FAIL**。子代理调用本身失败、没拿到报告时，记为
+**UNVERIFIED**，不重试，直接进入 `ARCHIVE`，这一点作为已知缺口写进留痕。无论哪种结果，都把
 CRITICAL/WARNING/SUGGESTION 条目记录到 Iteration Log 的 Notes 列中。
 
+- **PASS** → `ARCHIVE`。WARNING 不修，随归档写进 commit message 留给人看。
+- **FAIL** → `FIX` 一次，然后不管修得怎样都 `ARCHIVE`。
+
 **需要记住、并在用户问起时告知的注意事项：** 这个验证器与 APPLY 步骤是同一个底层模型，
-只是处于一个全新的上下文中，而不是一个独立训练出来的检查器。它能可靠地捕捉到遗漏的任务
-和明显的测试/构建失败；但对于 APPLY 步骤与本验证器恰好共有的某种误解，它并不能可靠地
-发现。把它当作一个真实但不完整的安全网。
+只是处于一个全新的上下文中，而不是一个独立训练出来的检查器。它能可靠地捕捉到遗漏的任务、
+明显的 bug 和测试/构建失败；但对于 APPLY 步骤与本验证器恰好共有的某种误解，它并不能可靠地
+发现。而且它只跑一次，`FIX` 的修改不会被再次验证（只跑构建/测试）。把它当作一个真实但不完整的
+安全网——它不决定流程能不能往下走，也不代替人在合并前看 diff。
 
-### ARCHIVE（PASS 时）
+### FIX（FAIL 时，只修一次）
 
-直接运行普通 CLI 而不是某个 AI 技能——一旦 VERIFY 已经把过关，归档就是纯机械操作：
+根据验证器报告的 **CRITICAL** 问题修订实现（WARNING/SUGGESTION 不修，只记录）。逐条核实：真实存在
+就修；核实后是误报的不改，记下具体理由；修不了的（需要产品决策、改动面超出本 change）如实记为
+没修。不能靠删除/跳过测试、放宽断言来"修"。修完如果项目有构建/测试命令就跑一次；这次修改把它
+改坏了就针对性修一次再跑，还是不行也继续往下走。**不再跑第二次 VERIFY。**
+
+在 Iteration Log 追加一行（`fix`、`FAIL`，Notes 中逐条写 CRITICAL 的处理结果：已修（未经复核）/
+误报及理由 / 没修及原因，以及修完后构建/测试是否通过），然后只提交不推送：
+
+```bash
+git add -A
+git commit -m "fix(<scope>): address verifier feedback on <change-name>"
+```
+
+然后转到 `ARCHIVE`。
+
+### ARCHIVE（总是执行）
+
+直接运行普通 CLI 而不是某个 AI 技能——归档是纯机械操作：
 
 ```bash
 openspec archive <change-name> --yes
@@ -280,43 +330,33 @@ openspec archive <change-name> --yes
 这会把 change 文件夹移动到 `openspec/changes/archive/YYYY-MM-DD-<change-name>/`，并在同一步
 更新主 spec。
 
-**提交：**
+**提交并推送：** 这次 push 会把本 change 之前只留在本地的实现/修复提交一起推上去。**已知缺口**
+包括：没修或修不了的 CRITICAL、被判为误报的 CRITICAL（附理由，供人复查）、`FIX` 后构建/测试仍未
+通过、验证器调用失败（UNVERIFIED）。有已知缺口时标题行末尾加 ` [known gaps]`，并在正文里逐条列出；
+WARNING 和已修（未经复核）的 CRITICAL 也列在正文里（某一段为空就省略那一段）：
 
 ```bash
 git add -A
-git commit -m "chore: archive <change-name>"
+git commit -m "$(cat <<'EOF'
+chore: archive <change-name>[ [known gaps]]
+
+Verifier: <PASS | FAIL, fixed once | UNVERIFIED>
+Known gaps:
+- <每一条已知缺口>
+Fixed after verification (unreviewed):
+- <每一条已修的 CRITICAL>
+Warnings (not fixed):
+- <每一条 WARNING>
+EOF
+)"
 git push || git push -u origin HEAD
 ```
 
-然后：把 `consecutive_failures` 重置为 0，`total_changes_completed` 加一，向 Iteration Log
-追加一行（`archived`、`PASS`），转到 `CHECK_GOAL_DONE`。
-
-### FIX_RETRY（FAIL 时）
-
-把状态文件 frontmatter 中的 `consecutive_failures` 加一。
-
-- **`< 3`**：向 Iteration Log 追加一行（`fix_retry (<consecutive_failures>/3)`、`FAIL`，
-  Notes 中带上 CRITICAL 问题），根据验证器的 CRITICAL 反馈修订实现，提交并推送，然后回到
-  `VERIFY`：
-
-  ```bash
-  git add -A
-  git commit -m "fix(<scope>): address verifier feedback on <change-name>"
-  git push || git push -u origin HEAD
-  ```
-- **`== 3`**：把状态文件中的 `status` 设为 `paused`，向 Iteration Log 追加一行
-  （`fix_retry (3/3)`、`FAIL`），然后：
-
-  ```
-  PushNotification({
-    message: "spec-loop paused: <change-name> failed verification 3x — <one-line reason>. Needs your review.",
-    status: "proactive"
-  })
-  ```
-
-  （如果当前上下文中没有 `PushNotification`，改为在本轮输出中醒目地打印这条消息。）
-
-  以哨兵行 `LOOP_STATUS: PAUSED` 结束本轮（见下方"与 /loop 组合"）。不要继续循环。
+然后：`total_changes_completed` 加一，向 Iteration Log 追加一行（`archived`、`PASS` / `FAIL→fixed` /
+`UNVERIFIED`，有已知缺口时在 Notes 注明 `known gaps`）。有已知缺口时，`changes_with_known_gaps` 加一，
+并把每一条缺口追加到状态文件的 `# Known gaps` 小节（不要写进 Carry-forward notes——那一节每次
+`EXPLORE_NEXT` 都会被整段覆写，写在那里的缺口下一轮就丢了）。如果这个 change 本身就是为了修掉
+之前的某些缺口，把 `# Known gaps` 里对应的行划掉并注明 `fixed by <change-name>`。转到 `CHECK_GOAL_DONE`。
 
 ### CHECK_GOAL_DONE
 
@@ -326,7 +366,7 @@ git push || git push -u origin HEAD
 
   ```
   PushNotification({
-    message: "spec-loop done: '<goal_slug>' complete — <N> changes archived. Review before merging further.",
+    message: "spec-loop done: '<goal_slug>' complete — <N> changes archived (<changes_with_known_gaps> with known gaps). Review before merging further.",
     status: "proactive"
   })
   ```

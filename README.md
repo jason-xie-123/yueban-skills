@@ -44,7 +44,7 @@ Notes:
 | [yueban-git-commit](skills/yueban-git-commit/SKILL.md) | Git commit workflow following Conventional Commits | When the user asks to commit code, create a commit, or mentions `/commit` |
 | [yueban-git-feature-branch-flow](skills/yueban-git-feature-branch-flow/SKILL.md) | Cut a same-named feature branch across a superproject and its active submodules, keep it in sync across machines, and report merge readiness | Only on explicit invocation (`/yueban-git-feature-branch-flow`) |
 | [yueban-git-safe-sync](skills/yueban-git-safe-sync/SKILL.md) | Pull/push in a submodule-based repo without ever detaching submodule HEADs or checking them out by recorded SHA | Only on explicit invocation (`/yueban-git-safe-sync`) |
-| [yueban-spec-loop](skills/yueban-spec-loop/SKILL.md) | Turn a Goal into an unattended OpenSpec loop (explore → propose → apply → verify → archive) | Claude Code only; explicit invocation only (`/yueban-spec-loop <goal>`, or `/loop /yueban-spec-loop <goal>` for unattended runs) |
+| [yueban-spec-loop](skills/yueban-spec-loop/SKILL.md) | Turn a Goal into an unattended OpenSpec loop (explore → propose → apply → verify + code review → archive) | Claude Code only; explicit invocation only (`/yueban-spec-loop <goal>`, or `/loop /yueban-spec-loop <goal>` for unattended runs) |
 | [yueban-spec-roadmap-flow](skills/yueban-spec-roadmap-flow/SKILL.md) | Drive an entire OpenSpec ROADMAP.md to completion, change by change | Only when the user explicitly asks to run through the whole roadmap |
 | [yueban-spec-single-change-flow](skills/yueban-spec-single-change-flow/SKILL.md) | Review the spec, implement, code-review, and archive a single OpenSpec change through its full cycle | Only on explicit invocation |
 
