@@ -46,7 +46,7 @@ Notes:
 | [yueban-git-safe-sync](skills/yueban-git-safe-sync/SKILL.md) | Pull/push in a submodule-based repo without ever detaching submodule HEADs or checking them out by recorded SHA | Only on explicit invocation (`/yueban-git-safe-sync`) |
 | [yueban-spec-loop](skills/yueban-spec-loop/SKILL.md) | Turn a Goal into an unattended OpenSpec loop (explore → propose → apply → verify → archive) | Claude Code only; explicit invocation only (`/yueban-spec-loop <goal>`, or `/loop /yueban-spec-loop <goal>` for unattended runs) |
 | [yueban-spec-roadmap-flow](skills/yueban-spec-roadmap-flow/SKILL.md) | Drive an entire OpenSpec ROADMAP.md to completion, change by change | Only when the user explicitly asks to run through the whole roadmap |
-| [yueban-spec-single-change-flow](skills/yueban-spec-single-change-flow/SKILL.md) | Review/implement/verify a single OpenSpec change through its full cycle | Only on explicit invocation |
+| [yueban-spec-single-change-flow](skills/yueban-spec-single-change-flow/SKILL.md) | Review the spec, implement, code-review, and archive a single OpenSpec change through its full cycle | Only on explicit invocation |
 
 ## Repo layout
 

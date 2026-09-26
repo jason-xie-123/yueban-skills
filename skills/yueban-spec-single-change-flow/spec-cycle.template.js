@@ -254,7 +254,7 @@ for (let round = 1; round <= MAX_ROUNDS; round++) {
 
     // 修复 agent 只做语义/内容层面的判断，不保证没把 openspec CLI 要求的格式（必需 section、
     // MUST/WHEN/THEN 关键字等）改坏。openspec validate 是确定性的格式检查，跑一次成本很低，
-    // 在这里做能比等到第三步（实施完之后）才发现格式问题更早拦住，避免带着坏格式去实施。
+    // 在这里做能比等到第四步（实施完之后）才发现格式问题更早拦住，避免带着坏格式去实施。
     validateResult = await agent(
       `在仓库根目录运行 \`openspec validate ${CHANGE}\` 命令，报告是否通过（passed）以及完整的命令输出（output，包含 stdout 和 stderr）。只运行这一个命令并如实报告结果，不要自行修改任何文件。`,
       { label: `r${round}-validate`, phase: phaseTitle, schema: VALIDATE_SCHEMA }
@@ -376,7 +376,7 @@ return {
   unresolvedBlockers,
   unresolvedValidateFailure,
   // round 1 并行跑的一次性基线探测结果：这次 change 实施之前，代码库本就存在哪些失败。
-  // 调用方（SKILL.md 第二步/第四步）用它判断哪些失败是"既有的"，需要单独修复、单独提交，
+  // 调用方（SKILL.md 第二步/第三步/第五步）用它判断哪些失败是"既有的"，需要单独修复、单独提交，
   // 不能和本次 change 的实现混在同一个 commit 里，也不能误判成本次改动引入的新问题。
   baseline,
   // 收敛后批量修复 minor 问题的结果；未收敛（仍有 blocker/major）时保持 null，未处理 minor。
