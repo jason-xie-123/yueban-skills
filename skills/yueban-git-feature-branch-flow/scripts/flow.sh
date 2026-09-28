@@ -70,11 +70,23 @@ repo_local_branch_exists() {
   git -C "$1" show-ref --verify --quiet "refs/heads/$2"
 }
 
-# Fetches one branch and reports "AHEAD BEHIND" of local <branch> vs
-# origin/<branch>. Returns 1 (no output) if origin/<branch> doesn't exist.
+# Fetches origin's <branch> into refs/remotes/origin/<branch>. The explicit
+# refspec matters: a plain `git fetch origin <branch>` only updates that ref
+# when the configured fetch refspec covers it, which single-branch/shallow
+# clones' don't — leaving origin/<branch> missing or stale.
 # Read-only with respect to local branches/HEAD — safe to call during preflight.
 repo_fetch_branch() {
-  git -C "$1" fetch --quiet origin "$2" 2>/dev/null || true
+  git -C "$1" fetch --quiet origin "+refs/heads/$2:refs/remotes/origin/$2" 2>/dev/null || true
+}
+
+# Create local <branch> from origin/<branch> and make origin/<branch> its
+# upstream. Not `checkout -b --track`: that refuses ("starting point is not a
+# branch") when origin/<branch> isn't covered by the configured fetch refspec,
+# i.e. exactly the single-branch/shallow clones repo_fetch_branch handles.
+repo_checkout_tracking() {
+  git -C "$1" checkout --no-track -b "$2" "origin/$2" \
+    && git -C "$1" config "branch.$2.remote" origin \
+    && git -C "$1" config "branch.$2.merge" "refs/heads/$2"
 }
 
 repo_remote_branch_exists() {
@@ -378,8 +390,8 @@ cmd_sync() {
         ;;
       track)
         echo "-- $path: checkout '$change_id' tracking origin/$change_id --"
-        run_step "$path: 'git checkout -b $change_id --track origin/$change_id' failed unexpectedly. Stopping — resolve $path by hand, then re-run." \
-          git -C "$path" checkout -b "$change_id" --track "origin/$change_id" || return 2
+        run_step "$path: creating '$change_id' from origin/$change_id (with origin/$change_id as upstream) failed unexpectedly. Stopping — resolve $path by hand, then re-run." \
+          repo_checkout_tracking "$path" "$change_id" || return 2
         ff=0
         ;;
     esac
