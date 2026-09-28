@@ -1,6 +1,6 @@
 ---
 name: yueban-git-feature-branch-flow
-description: '在带 git submodule 的仓库里按 spec/功能开一条同名分支——父仓库和每个当前维护的 submodule（从 .gitmodules 动态发现，排除 deprecated/ 前缀的历史模块）统一从用户选定的 base 分支（项目实际用的哪条都行，不写死）切出 <change-id> 分支，开发期间用 sync 在多台机器间对齐这个分支（不影响 base 分支本身），提交时编排 yueban-git-commit 按"submodule 先、父仓库后"的顺序逐个提交，收尾时给出合并就绪报告但不自动合并（由用户手动合并/PR），合并完成后可选清理分支。和 yueban-git-safe-sync 的区别：那个管的是 base 分支本身的 pull/push，这个管的是脱离 base 分支的功能分支全生命周期。**仅显式触发**：只有用户明确输入 `/yueban-git-feature-branch-flow`，或明确点名要用这个 skill 时才调用；用户说"开个分支""切个分支""这个 spec 怎么开发"之类的泛化表述不要自动联想到这里，先按普通 git 操作处理或直接追问，除非用户点名。'
+description: '在带 git submodule 的仓库里按 spec/功能开一条同名分支——父仓库和每个当前维护的 submodule（从 .gitmodules 动态发现，排除 deprecated/ 前缀的历史模块）统一从用户选定的 base 分支（项目实际用的哪条都行，不写死）切出 <change-id> 分支，开发期间用 sync 在多台机器间对齐这个分支（不影响 base 分支本身），提交时编排 yueban-git-commit 按"submodule 先、父仓库后"的顺序逐个提交，收尾时给出合并就绪报告但不自动合并（由用户手动合并/PR），合并完成后可选清理分支。和 yueban-git-safe-sync 的区别：那个管的是当前分支本身的 pull/push，以及"把 base 合进当前分支""对当前分支开 PR"这两个单点动作，这个管的是脱离 base 分支的功能分支全生命周期。**仅显式触发**：只有用户明确输入 `/yueban-git-feature-branch-flow`，或明确点名要用这个 skill 时才调用；用户说"开个分支""切个分支""这个 spec 怎么开发"之类的泛化表述不要自动联想到这里，先按普通 git 操作处理或直接追问，除非用户点名。'
 allowed-tools: Bash, Skill, AskUserQuestion
 ---
 
@@ -88,6 +88,6 @@ scripts/flow.sh finish <change-id> --cleanup    # 确认已合并后，删除各
 
 - **实际的合并操作**（本地 `git merge` 还是走 PR、要不要 code review）：`finish` 只做前置检查和报告，合并本身由用户手动执行。
 - **commit message 的撰写**：交给 `yueban-git-commit` skill，本 skill 的 `pending` 只负责告诉你该按什么顺序处理哪些仓库。
-- **base 分支本身的 pull/push**：那是 `yueban-git-safe-sync` 的职责——如果用户就是想直接在 base 分支上同步（不涉及功能分支），用那个 skill，不要用这个。
+- **base 分支本身的 pull/push**：那是 `yueban-git-safe-sync` 的职责——如果用户就是想直接在 base 分支上同步（不涉及功能分支），用那个 skill，不要用这个。开发中途想把 base 的新提交合进功能分支，或收尾时想对父仓库+各 submodule 一次性开 PR，可以用 `yueban-git-safe-sync` 的 `merge-base`/`pr` 子命令（需用户显式调用那个 skill），本 skill 不重复实现。
 - **`deprecated/` 之类路径下的历史/冻结模块**：不参与这套分支流程（随 `.gitmodules` 动态发现规则自动排除）。
 - **新增/删除 submodule、修改 `.gitmodules`**：结构性变更，超出这个 skill 的范围，照常手动处理。
