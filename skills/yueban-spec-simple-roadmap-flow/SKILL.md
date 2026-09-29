@@ -26,18 +26,18 @@ allowed-tools: Bash, Read, Edit, Write, Grep, Glob, Skill, AskUserQuestion
 
 1. `command -v openspec`；`git status --short` 为空（不干净先问用户）。
 2. 读 `ROADMAP.md`，**轻量核实**一下顺序描述是否还符合代码现状：
-   - 某条其实已在代码里**全部**实现：直接从待办小节删掉，单独 commit（`docs(roadmap): remove <name>, already implemented`），继续。
+   - 某条其实已在代码里**全部**实现：直接从待办小节删掉，单独提交，继续。
    - 只**部分**实现：停下来问用户怎么处理。
-   - 「阻塞中」的条目看一眼解除条件是否已满足，满足的**先问用户**要不要移回原位置，同意后移回并单独 commit（`docs(roadmap): unblock <name>`）。
+   - 「阻塞中」的条目看一眼解除条件是否已满足，满足的**先问用户**要不要移回原位置，同意后移回并单独提交。
 3. 先按顺序处理「有依赖关系」，再串行处理「无强依赖」。每个 change 通过 `Skill` 调用 `yueban-spec-simple-single-change-flow`，**显式传入 change 名**。一次只做一个，不并行。
-4. 每个 change 提交后，从对应待办小节删掉它的条目，**单独 commit**（`docs(roadmap): remove <name>, archived`）——不提交的话，下一个 change 的"工作区干净"检查会被挡住。
+4. 每个 change 提交后，从对应待办小节删掉它的条目，**单独提交**——不提交的话，下一个 change 的"工作区干净"检查会被挡住。
 5. 向用户简短汇报一句（刚完成的 change、commit hash、还剩几个），**然后直接继续下一个**，不等确认。
 6. 两个待办小节都清空就结束。
 
 ## 中途要停下来的情况
 
 - 子流程停下来问用户（Open Questions 未定案、产品取舍、实施阻塞、测试修不好）：等用户答复，拿到答复前不要跳到后面的 change，除非用户说"先跳过"。
-- 发现某个 change 的外部前置条件不具备：说明缺什么；用户确认暂缓后，工作区里有它的未提交改动先问用户怎么处理（丢弃 / stash / 提交到 WIP 分支），再把它移到「阻塞中」（写明原因、解除条件、原位置），单独 commit（`docs(roadmap): block <name>`），继续后面的。后面依赖它的 change 一并问用户是否也移入。
+- 发现某个 change 的外部前置条件不具备：说明缺什么；用户确认暂缓后，工作区里有它的未提交改动先问用户怎么处理（丢弃 / stash / 提交到 WIP 分支），再把它移到「阻塞中」（写明原因、解除条件、原位置），单独提交，继续后面的。后面依赖它的 change 一并问用户是否也移入。
 
 ## 收尾
 
