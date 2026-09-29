@@ -2,17 +2,23 @@
 
 本文汇总当前待实施的独立 OpenSpec 变更（均已完成 proposal/design/specs/tasks 四份产出物，状态：**待实施**）及其依赖顺序。
 
-这是 `openspec/changes/ROADMAP.md` 的结构权威范本，供 `yueban-spec-roadmap-flow` 和 `yueban-spec-single-change-flow` 两个 skill 共同引用，避免各自文字描述跑偏。前三个小节是"待办排序"区域，由 `yueban-spec-roadmap-flow` 独占维护；后三个小节是"日志"区域，由 `yueban-spec-single-change-flow` 在它自己第五步的提交里追加维护。
+这是 `openspec/changes/ROADMAP.md` 的结构权威范本，供 `yueban-spec-roadmap-flow` 和 `yueban-spec-single-change-flow` 两个 skill 共同引用，避免各自文字描述跑偏。「有依赖关系」「无强依赖」「阻塞中」三个待办小节与「实施方式」由 `yueban-spec-roadmap-flow` 独占维护，其中只有前两个是它批量推进时逐个处理的待办；最后三个小节是"日志"区域，由 `yueban-spec-single-change-flow` 在它自己第五步的提交里追加维护。
 
 ## 有依赖关系、需要按顺序执行
 
-（按依赖顺序列出需要串行处理的 change，每条注明为什么排在这个位置、依赖哪个前置 change、是否有文件交叉；如果当前为空，写明"暂无待实施 change"。）
+（按依赖顺序列出需要串行处理的 change，每条注明为什么排在这个位置、依赖哪个前置 change、是否有文件交叉；如果当前为空，写明"暂无待实施 change"。列表顺序就是执行顺序：用户为没有硬依赖的 change 指定了先后时，也可以按用户定的顺序排进本节，并注明是按用户决定而不是依赖。）
 
 1. **<change-name>** — <一句话说明依赖关系或文件交叉原因>
 
 ## 无强依赖，可随时执行 / 穿插
 
 （列出彼此没有顺序依赖的 change；如果当前为空，写明"暂无可脱离顺序独立穿插的项"。）
+
+## 阻塞中，前置条件满足前不实施
+
+（可选。列出因外部前置条件暂时不能实施的 change——例如依赖某个业务上线、他方交付或需要人工完成的前提，而不是 Open Questions 未定案或 change 被放弃。每条写明阻塞原因、解除条件，以及移入前的原位置（移回时靠它恢复顺序）。本小节不在 `yueban-spec-roadmap-flow` 批量推进的范围内；解除条件满足、经用户确认后，按原位置移回「有依赖关系」或「无强依赖」再实施。如果当前为空，写明"暂无阻塞项"。）
+
+1. **<change-name>** — 阻塞原因：<……>；解除条件：<……>；原位置：<「有依赖关系」第 N 项，前置 <change-a>、后续 <change-b> / 「无强依赖」>
 
 ## 实施方式
 
