@@ -34,3 +34,5 @@ token.json
 .agents/skills/yueban-git-safe-sync
 .agents/skills/yueban-spec-loop
 .agents/skills/yueban-proj-prune-historical
+.agents/skills/yueban-spec-simple-roadmap-flow
+.agents/skills/yueban-spec-simple-single-change-flow

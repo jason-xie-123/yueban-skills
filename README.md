@@ -47,6 +47,8 @@ Notes:
 | [yueban-spec-loop](skills/yueban-spec-loop/SKILL.md) | Turn a Goal into an unattended OpenSpec loop (explore → propose → apply → verify + code review → archive) | Claude Code only; explicit invocation only (`/yueban-spec-loop <goal>`, or `/loop /yueban-spec-loop <goal>` for unattended runs) |
 | [yueban-spec-roadmap-flow](skills/yueban-spec-roadmap-flow/SKILL.md) | Drive an entire OpenSpec ROADMAP.md to completion, change by change | Only when the user explicitly asks to run through the whole roadmap |
 | [yueban-spec-single-change-flow](skills/yueban-spec-single-change-flow/SKILL.md) | Review the spec, implement, code-review, and archive a single OpenSpec change through its full cycle | Only on explicit invocation |
+| [yueban-spec-simple-roadmap-flow](skills/yueban-spec-simple-roadmap-flow/SKILL.md) | Lightweight version of yueban-spec-roadmap-flow: drive ROADMAP.md to completion in order, delegating each change to yueban-spec-simple-single-change-flow | Only on explicit invocation (name the skill, or ask for the lightweight flow over the whole roadmap) |
+| [yueban-spec-simple-single-change-flow](skills/yueban-spec-simple-single-change-flow/SKILL.md) | Lightweight single-change flow: review the spec once and fix it, apply, review the local code changes once, archive, commit (no push); no Workflow | Only on explicit invocation (name the skill, or ask for the lightweight flow on one change) |
 
 ## Repo layout
 
