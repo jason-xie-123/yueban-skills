@@ -8,7 +8,7 @@ allowed-tools: Bash, Read, Edit, Write, Grep, Glob, Skill, Agent, AskUserQuestio
 
 # OpenSpec 单 change 轻量流程
 
-把一个 pending change 从 spec 推到提交：**review spec → 修 → apply → review 代码 → archive → commit**。各步之间不停下来等确认，一口气做完；只有真正需要人拍板的事才停。
+把一个 pending change 从 spec 推到提交：**review spec → 修 → apply → review 代码 → archive → commit**。各步之间不停下来等确认，一口气做完。
 
 和重版 `yueban-spec-single-change-flow` 的区别：不跑多轮多 agent workflow，spec 和代码各 review 一遍、修一遍就往下走，不写 `ROADMAP.md` 日志小节。适合前中期、spec 规模不大的项目。
 
@@ -26,22 +26,17 @@ change 名必须明确。用户没说是哪一个，先问，不要自己去 `RO
 
 ## 第一步：review 整个 spec，有问题就改
 
-自己把这个 change 的 `proposal.md`、`design.md`、`tasks.md`、`specs/**/*.md` 全部读一遍，重点看：
-
-- **是否自洽**：几份文档之间有没有矛盾；`proposal.md` 承诺的范围有没有都拆进 `tasks.md`。
-- **前提是否还成立**：文档里提到的文件路径、接口、数据结构、依赖的其它 change——**去代码里核实**，不是拿文档对文档。
-- **任务是否可执行**：`tasks.md` 每条是否具体到能直接动手；验证类任务有没有针对本次新增/变更行为的断言，而不是只写"跑一遍测试"。
-- **是否符合 `openspec/config.yaml` 的 `rules`**。
+自己把这个 change 的整个 spec（`proposal.md`、`design.md`、`tasks.md`、`specs/**/*.md`）review 一遍，看还有没有问题，怎么 review 自己决定。
 
 发现的问题直接改这几份文档，不碰代码。改完跑 `openspec validate <name>`，不通过就修到通过。
 
-**要停下来问用户的只有两类**：文档里写明的 Open Questions 还没定案；没有唯一正确答案、需要人判断的产品/技术取舍。其余（过期路径、描述矛盾、任务写得太虚）自己改掉即可。
+文档里还没定案的 Open Questions、需要判断的产品/技术取舍，也由你自己拍板，不停下来问用户；把结论和理由写进 `design.md`，方便事后复查。
 
-改完向用户简短列一下发现并修了什么，然后**直接进入第二步**，不等确认。
+改完向用户简短列一下发现并修了什么、替用户拍板了哪些决定，然后**直接进入第二步**，不等确认。
 
 ## 第二步：apply
 
-用 `Skill` 调用 `openspec-apply-change`，传入 change 名，让它把 `tasks.md` 全部做完。遇到它自己报的阻塞（任务不清楚、验证任务失败且不知道怎么修）就停下来问用户，不要硬推。
+用 `Skill` 调用 `openspec-apply-change`，传入 change 名，让它把 `tasks.md` 全部做完。任务描述不清楚时自己判断怎么做；只有实施根本做不下去（比如缺少外部依赖或权限）才停下来问用户。
 
 做完用 `grep -c '^- \[ \]' openspec/changes/<name>/tasks.md` 确认是 0——不要只信 apply 自己报的 `all_done`。
 
@@ -49,10 +44,7 @@ change 名必须明确。用户没说是哪一个，先问，不要自己去 `RO
 
 review 范围是这次 apply 产生的全部本地改动：`git diff HEAD` **加上** `git status --short` 里的未跟踪新文件（只看 `git diff` 会漏掉新建的文件）。纯文档类 change（改动只在 `openspec/changes/<name>/` 下）跳过这一步。
 
-- 有 subagent 工具（如 Claude Code 的 `Agent`）就交给**一个**新开的 subagent 做只读 review，换个上下文更容易看出实施时的盲点；没有就自己 review。
-- 看四件事：逻辑正确性和边界条件；是否满足 `specs/**/*.md` 的 Requirement/Scenario、是否违背 `design.md`；安全问题（输入校验、注入、越权、敏感信息）；新增行为有没有测试断言覆盖。
-- 只修 blocker/major（一定会出错或现实可触发的缺陷、缺测试覆盖），minor 记下来不修。不能靠删测试、跳过测试、放宽断言来"修"。
-- 修完跑一次项目的构建+测试。失败先判断是不是这次改动引入的（不确定就 `git stash` 在干净代码上对比一次）；是就修，修不好就停下来问用户。
+把这些改动 review 一遍，怎么 review 自己决定。发现的问题修掉；改了代码就再跑一次项目的构建+测试（没改代码不用重跑，apply 阶段已经跑过）。修不好的问题不停下来，记成已知缺口，写进 commit message，照常往下走。
 
 只 review 一轮，不反复。修完直接进入第四步。
 
@@ -61,16 +53,15 @@ review 范围是这次 apply 产生的全部本地改动：`git diff HEAD` **加
 ```bash
 openspec archive <name> -y
 git status --short
-git diff --stat openspec/specs/
 ```
 
 确认 change 目录已移到 `openspec/changes/archive/YYYY-MM-DD-<name>`，且 `openspec/specs/` 下对应的 spec 真的被创建/更新了，不能只看退出码。只有纯工具/文档类、本来就没有 `specs/` 的 change 才加 `--skip-specs`。
 
-然后提交代码，**只 commit，不 push**。
+然后提交代码，**只 commit，不 push**，也不要问用户是否推送。
 
 ## 收尾
 
-向用户汇报：spec review 修了什么、实施和测试结果、代码 review 修了什么和遗留的 minor、commit hash，并提醒**只提交在当前分支、还没推送**。
+向用户汇报：已知缺口（有的话放最前面）、替用户拍板的决定、spec review 修了什么、实施和测试结果、代码 review 修了什么、commit hash，并提醒**只提交在当前分支、还没推送**。
 
 然后停下，不要自己接着做下一个 change。**例外**：被 [`yueban-spec-simple-roadmap-flow`](../yueban-spec-simple-roadmap-flow/SKILL.md) 调用时，汇报完直接把控制权交回去。
 
@@ -78,5 +69,5 @@ git diff --stat openspec/specs/
 
 - apply 报 `all_done` 不等于任务全勾了，用 `grep` 交叉核实。
 - 代码 review 只看 `git diff` 会漏掉未跟踪的新文件。
-- `openspec archive` 退出码 0 不代表 spec 同步了，用 `git status`/`git diff openspec/specs/` 看一眼。
+- `openspec archive` 退出码 0 不代表 spec 同步了，用 `git status` 看一眼（新建的 spec 文件未跟踪，`git diff` 看不到）。
 - change 中途被用户放弃时，不要走 `openspec archive`：把目录移到 `openspec/changes/archive/$(date +%Y-%m-%d)-abandoned-<name>`，已经产生的代码改动先问用户要不要 revert，再提交。
