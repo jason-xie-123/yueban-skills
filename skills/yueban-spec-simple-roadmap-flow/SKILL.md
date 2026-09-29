@@ -12,7 +12,7 @@ allowed-tools: Bash, Read, Edit, Write, Grep, Glob, Skill, AskUserQuestion
 
 ## ROADMAP.md 结构
 
-本 skill 读写这三个待办小节（和重版 `yueban-spec-roadmap-flow` 用的格式兼容）：
+完整结构见 [`roadmap-template.md`](roadmap-template.md)。本 skill 读写这三个待办小节（和重版 `yueban-spec-roadmap-flow` 用的格式兼容）：
 
 - **「有依赖关系、需要按顺序执行」**：列表顺序就是执行顺序，不要自己重排。
 - **「无强依赖，可随时执行 / 穿插」**：彼此没有顺序依赖的 change。
@@ -20,7 +20,7 @@ allowed-tools: Bash, Read, Edit, Write, Grep, Glob, Skill, AskUserQuestion
 
 文件里的其它小节（如「实施方式」、重版流程追加的日志小节）原样保留，不删也不追加。
 
-文件不存在时不要凭空新建后就当"没有待办"结束——先问用户现在有没有 pending change、要不要按上面结构新建一份。
+文件不存在时不要凭空新建后就当"没有待办"结束——先问用户现在有没有 pending change、要不要按 [`roadmap-template.md`](roadmap-template.md) 新建一份。
 
 ## 流程
 
