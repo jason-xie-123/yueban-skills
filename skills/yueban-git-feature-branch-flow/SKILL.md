@@ -75,6 +75,7 @@ scripts/flow.sh finish <change-id> --cleanup    # 确认已合并后，删除各
 3. 把报告转述给用户，按这个顺序建议操作（**这几步都是用户手动做，本 skill 不执行**）：
    - 对每个有实际改动的 submodule：把 `<change-id>` 合并/PR 回它自己的 base 分支，推送。
    - 回父仓库：`git add <submodule>` 记录新指针 → 提交（这一步同样可以用 `yueban-git-commit`）→ 把父仓库的 `<change-id>` 合并/PR 回它自己的 base 分支，推送。
+   - 走 PR 的话，可以直接在 `<change-id>` 上用 `yueban-git-safe-sync` 的 `pr <base-branch>` 一次性开好。走本地合并的话，建议先把父仓库和各 submodule **一起**切回 base 分支，再逐个 `git merge <change-id>`，最后用 `yueban-git-safe-sync` 的 `push` 按"submodule 先、父仓库后"推送——那个 skill 要求父仓库和各 submodule 在同名分支上，只切了一部分仓库时它会 `BLOCKED`。
    - 空分支（没有实际改动的仓库）要不要合并/删除，由用户自己决定，不用主张。
 4. 用户确认上面的合并都做完、推送完之后，如果想清理分支，跑 `scripts/flow.sh finish <change-id> --cleanup`——它会先检查每个仓库的 `<change-id>` 是否真的已经成为本地 base 分支的祖先（即已合并），且 base 分支本身没有领先 origin（避免删掉唯一的远程备份），任何一处没满足就整体 BLOCKED、不删任何分支。**执行清理（删分支）前必须让用户确认**，不要看到报告干净就自动往下跑 `--cleanup`。
 
