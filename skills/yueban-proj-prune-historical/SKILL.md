@@ -1,6 +1,6 @@
 ---
 name: yueban-proj-prune-historical
-description: '扫描并清理整个项目（根仓库自身与每个当前维护的 submodule——从 .gitmodules 动态取得、排除 deprecated/ 前缀；根仓库和每个 submodule 一视同仁，用同一套文件类型规则全仓库扫描）中源码注释（覆盖主流常见语言，按注释语法分组：Java/Kotlin/Swift/Go/C/C++/C#/Rust/Scala/Groovy/Dart/TS/JS 等 // 、/* */、/** */ 风格，Python/Ruby/Shell/Perl/R/YAML 等 # 风格，SQL/Lua 等 -- 风格，PowerShell 的 # 与 <# #>，HTML/XML 的 <!-- -->，CSS/SCSS/LESS 的 /* */）和 Markdown 文档里记录"历史变更过程"的内容——不论是否 AI 生成，只要是"原本怎样、后来因为 XX 改成怎样""随某次迁移/变更删除""迁移自旧模块""design.md 决策 X"这类历史回溯叙事，源码注释整块删除，Markdown 文档只删历史叙事句子、保留仍然生效的操作指南。用户明确要求清理这类历史注释、或提到"这些注释都是记录变更过程的没必要"时使用。默认排除：deprecated/ 整个目录树、项目明确标注的历史规划归档文档目录、整个 openspec/ 目录树（若项目使用 openspec）、.claude/.codex/.gemini/.agents 四个 agent 工具配置目录整体、.gitignore 里列出的路径（如 node_modules 等，git ls-files 天然不会枚举到）。'
+description: '扫描并清理整个项目（根仓库自身与每个当前维护的 submodule——从 .gitmodules 动态取得、排除 deprecated/ 前缀；根仓库和每个 submodule 一视同仁，用同一套文件类型规则全仓库扫描）中源码注释（覆盖主流常见语言，按注释语法分组：Java/Kotlin/Swift/Go/C/C++/C#/Rust/Scala/Groovy/Dart/TS/JS 等 // 、/* */、/** */ 风格，Python/Ruby/Shell/Perl/R/YAML 等 # 风格，SQL/Lua 等 -- 风格，PowerShell 的 # 与 <# #>，HTML/XML 的 <!-- -->，CSS/SCSS/LESS 的 /* */）和 Markdown 文档里记录"历史变更过程"的内容（同时支持中文与英文）——不论是否 AI 生成，只要是"原本怎样、后来因为 XX 改成怎样""随某次迁移/变更删除""迁移自旧模块""originally was... later changed to...""removed in migration X"这类历史回溯叙事，源码注释整块删除，Markdown 文档只删历史叙事句子、保留仍然生效的操作指南。用户明确要求清理这类历史注释、或提到"这些注释都是记录变更过程的没必要"时使用。默认排除：deprecated/ 整个目录树、项目明确标注的历史规划归档文档目录、整个 openspec/ 目录树（若项目使用 openspec）、.claude/.codex/.gemini/.agents 四个 agent 工具配置目录整体、.gitignore 里列出的路径（如 node_modules 等，git ls-files 天然不会枚举到）。'
 allowed-tools: Bash, Read, Edit, Grep, Glob, Agent, AskUserQuestion
 ---
 
@@ -35,13 +35,20 @@ allowed-tools: Bash, Read, Edit, Grep, Glob, Agent, AskUserQuestion
 
 **清理对象**：注释/文档段落中描述"这段代码/规则/测试是如何从过去的状态变成现在的状态"的历史回溯叙事。不要求是 AI 生成的——只要内容在记录历史变更过程，不论作者是谁，都算清理对象。
 
-典型特征（不限于，供子 agent 判断时参考，不是穷举关键词表）：
-- "原本是……后来因为……改成"
-- "随某次版本/迁移删除/变更"
-- "迁移自旧模块/旧实现"
-- "不复述某次改动前已有的……"
-- "该测试原位置留下的说明注释""历史数据合并逻辑原先由……覆盖，随……移除"这类叙事结构
-- "design.md / tasks.md 决策 X" 且该引用只是在交代"这条规则是怎么定下来的过程"（如"改判为……""施工阶段补的接口……design.md 未预先设计"），本身对理解当前行为没有增量信息。
+典型特征（不限于，供子 agent 判断时参考，支持中文与英文历史叙事，不是穷举关键词表）：
+- **中文典型叙事**：
+  - "原本是……后来因为……改成"
+  - "随某次版本/迁移删除/变更"
+  - "迁移自旧模块/旧实现"
+  - "不复述某次改动前已有的……"
+  - "该测试原位置留下的说明注释""历史数据合并逻辑原先由……覆盖，随……移除"这类叙事结构
+  - "design.md / tasks.md 决策 X" 且该引用只是在交代"这条规则是怎么定下来的过程"（如"改判为……""施工阶段补的接口……design.md 未预先设计"），本身对理解当前行为没有增量信息。
+- **英文典型叙事（English typical narrative patterns）**：
+  - "originally was... later changed to... because..." / "previously..., but now..."
+  - "removed / deleted / changed in / following vX.Y / migration Z"
+  - "migrated from / ported from / refactored from legacy module / old implementation"
+  - "kept from earlier logic..." / "formerly known as..." / "legacy fallback for..."
+  - "decision X from design.md / tasks.md" (when solely recounting how the rule was agreed upon rather than explaining an active constraint)
 
 **反例（不清理）：**
 - `@deprecated` 说明，即使提到"原来做什么用、为什么废弃"，只要仍对调用方有实际指导价值（如指向替代方案）。
@@ -66,8 +73,8 @@ allowed-tools: Bash, Read, Edit, Grep, Glob, Agent, AskUserQuestion
 - **AI 逐文件通读判断**：不依赖关键词，由子 agent 通读分组内每个文件正文，靠语义判断是否为历史叙事。覆盖更全，但更慢、更耗 token。
 - **关键词预筛 + AI 复核**：先用 grep 关键词圈出候选文件/候选行，子 agent 只复核候选是否真的该删。更快，但可能漏掉不含常见关键词的历史叙事。
 
-关键词参考（仅用于"关键词预筛"模式，子 agent 可按分组内容自行补充，不要求穷举）：
-`原本|原来是|后来因为|随.{0,10}(删除|变更|迁移)|design\.md|tasks\.md|迁移自|已废弃的旧|决策 ?\d`
+关键词参考（仅用于"关键词预筛"模式，搜索时使用不区分大小写的 `grep -iE`，同时覆盖中英文，子 agent 可按分组内容自行补充，不要求穷举）：
+`原本|原来是|后来因为|随.{0,10}(删除|变更|迁移)|design\.md|tasks\.md|迁移自|已废弃的旧|决策 ?\d|originally|previously|formerly|migrated from|removed (in|after)|changed (from|due to|because)|legacy|deprecated in|historical`
 
 ### 第 2 步：枚举并分组文件
 
@@ -122,7 +129,7 @@ git ls-files -- "${SRC_EXTS[@]}" \
 对每个分组用 Agent 工具派发一个 `general-purpose` 子任务，**在同一条消息里一次性并行发出**。子任务 prompt 必须完整包含本文件"判定标准"（含"处理任何 docs/ 目录时额外注意"那段）"清理粒度（按文件类型区分，不要混用同一套规则）""明确排除，不清理"三节的原文内容（把文字直接粘贴过去，不要只给一个文件路径让子 agent 自己去读——子 agent 是全新上下文，看不到这个 SKILL.md）。派给任何 `docs/` 分组的子任务，额外在 prompt 里强调一句：这批文件是产品/业务资料，不是工程文档，拿不准一律按「反例」处理、不删，宁可漏改也不要误删决策留痕：
 
 ```
-你的任务：清理 <分组路径> 目录下源码注释和 Markdown 文档里记录"历史变更过程"的内容。
+你的任务：清理 <分组路径> 目录下源码注释和 Markdown 文档里记录"历史变更过程"的内容（同时覆盖中文与英文）。
 
 【判定标准】
 （粘贴上面"判定标准"整节内容）
