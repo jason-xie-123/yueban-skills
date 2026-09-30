@@ -1,6 +1,6 @@
 ---
 name: yueban-git-safe-sync
-description: '在带 git submodule 的仓库里执行 pull、push、把 base 分支合并进当前分支、或对父仓库+全部 submodule 开 GitHub PR，保证每个当前维护的 submodule（从 .gitmodules 动态发现，排除 deprecated/ 前缀的历史/冻结模块）始终停留在其原有分支上（具体叫什么以项目实际约定为准），绝不因为这些操作而把 submodule 变成游离 HEAD（detached HEAD）或强制签出到父仓库记录的 SHA。pull/push 适合"在多台机器上跑同一套项目、submodule 分支状态必须跨机器保持一致"的场景；merge-base/pr 适合"当前在一条从 base 切出的功能分支上，要把 base 的新提交合进来，或者要把这条分支开 PR 合回 base"的场景。**仅显式触发**：只有用户明确输入 `/yueban-git-safe-sync`，或明确说要用这个 skill 时才调用；用户只是随口说"pull 一下""push 一下""同步一下代码""合并一下 develop""开个 PR"这类泛化表述，不要自作主张联想到这个 skill——先按普通 git 操作处理或直接追问，除非用户点名。'
+description: '在带 git submodule 的仓库里执行 pull、push、把 base 分支合并进当前分支、或对父仓库+全部 submodule 开 GitHub PR，保证每个当前维护的 submodule（从 .gitmodules 动态发现，排除 deprecated/ 前缀的历史/冻结模块）始终停留在其原有分支上（具体叫什么以项目实际约定为准；要求父仓库和各 submodule 签出同名分支，分支名不一致时一律 BLOCKED），绝不因为这些操作而把 submodule 变成游离 HEAD（detached HEAD）或强制签出到父仓库记录的 SHA。pull/push 适合"在多台机器上跑同一套项目、submodule 分支状态必须跨机器保持一致"的场景；merge-base/pr 适合"当前在一条从 base 切出的功能分支上，要把 base 的新提交合进来，或者要把这条分支开 PR 合回 base"的场景。**仅显式触发**：只有用户明确输入 `/yueban-git-safe-sync`，或明确说要用这个 skill 时才调用；用户只是随口说"pull 一下""push 一下""同步一下代码""合并一下 develop""开个 PR"这类泛化表述，不要自作主张联想到这个 skill——先按普通 git 操作处理或直接追问，除非用户点名。'
 allowed-tools: Bash
 ---
 
@@ -26,17 +26,18 @@ allowed-tools: Bash
 ## 核心原则
 
 1. **submodule 的分支永远是唯一真相来源，父仓库记录的 SHA 只是一个滞后的快照。** 更新 submodule 时按分支 `fetch` + 快进（fast-forward），绝不按 SHA 签出。
-2. **遇到任何异常都停下来问用户，绝不自动"修好"。** 包括：submodule 已经处于 detached HEAD、有未提交的改动、本地分支与远程分支出现分叉（既有本地独有提交又落后远程）。这些都是需要人来决定怎么合并/变基的场景，脚本不会替用户做这个决定。
+2. **遇到任何异常都停下来问用户，绝不自动"修好"。** 包括：submodule 已经处于 detached HEAD、有未提交的改动、本地分支与远程分支出现分叉（既有本地独有提交又落后远程）、submodule 与父仓库不在同名分支上。这些都是需要人来决定怎么合并/变基的场景，脚本不会替用户做这个决定。
 3. **push 之前，先把每个 submodule 自己的提交推到它自己的远程分支，再推父仓库。** 顺序反过来就会出现父仓库记录了一个远程还没有的 commit。
 4. **一次同步操作对所有 submodule 是"全部可以就全部做，有一个卡住就全部不做"**，不会出现部分 submodule 已经变了、另一些还没变的中间状态。这一条对 `pull`/`push`/`pr` 严格成立（它们的"能不能做"在动手前就能查清楚，查完再统一动手）；对 `merge-base` 只在预检阶段成立——合并冲突只有真的执行合并才能发现，所以 `merge-base` 遇到冲突时会停在那个仓库、如实报告"这之前的仓库已经合完了、这个冲突了、后面的没碰"，而不是假装整体原子。
-5. **`pr` 开 PR 前必须让用户看到标题/描述再确认**：标题/描述从 commit history 自动生成，但创建 PR 是对外可见、别人能看到的操作，跟 push 一样不能因为检查通过就自动执行——先用 `--dry-run` 出计划，用户确认后再真正创建。
+5. **父仓库和每个 submodule 必须签出同名分支。** 父仓库在 `develop` 上，submodule 就都在 `develop` 上；父仓库在功能分支 `<x>` 上，submodule 就都在 `<x>` 上（`yueban-git-feature-branch-flow` 的 `start` 就是这样统一切的）。只核对"每个仓库跟自己的 origin 是否同步"不够：分支名不一致时，每个仓库各自看都是干净、同步的，但父仓库记录的指针和 submodule 实际提交所在的分支已经对不上了。`status` 会在末尾给出 `BRANCH CHECK: OK`、`BRANCH MISMATCH`，或者父仓库处于 detached HEAD 时的 `BRANCH CHECK: superproject is in detached HEAD ...`（无法比较），`pull`/`push`/`merge-base`/`pr` 在分支名不一致时一律 `BLOCKED`，不会替用户决定该切哪一边。
+6. **`pr` 开 PR 前必须让用户看到标题/描述再确认**：标题/描述从 commit history 自动生成，但创建 PR 是对外可见、别人能看到的操作，跟 push 一样不能因为检查通过就自动执行——先用 `--dry-run` 出计划，用户确认后再真正创建。
 
 ## 怎么用
 
 具体的 git 操作都封装在 `scripts/sync.sh` 里（纯 bash + git plumbing，确定性强，不需要每次重新推理怎么写 git 命令）。五个子命令：
 
 ```bash
-scripts/sync.sh status        # 只读，展示每个 submodule 当前分支/是否 dirty/ahead-behind
+scripts/sync.sh status        # 只读，展示每个 submodule 当前分支/是否 dirty/ahead-behind，末尾核对与父仓库分支名是否一致
 scripts/sync.sh pull          # 安全 pull
 scripts/sync.sh push          # 安全 push
 scripts/sync.sh push --dry-run   # 只打印计划，不实际推送
@@ -54,7 +55,7 @@ scripts/sync.sh pr <base-branch> --draft             # 创建为 draft PR
 用户调用 `/yueban-git-safe-sync` 时可能直接说明意图（"我要 pull"/"我要 push"/"把 develop 合进来"/"开 PR"），也可能什么都不加。按下面顺序判断：
 
 1. 用户消息里明确提到 pull（拉取/同步最新代码/换了台机器）、push（推送/提交上去/同步给另一台机器）、merge-base（把 base 分支的新提交合进当前分支）或 pr（开 PR 合回 base），就按对应模式走。
-2. 都没提到：先跑 `scripts/sync.sh status`，看当前是 ahead（有本地未推送的提交，倾向于 push 场景）还是 behind（远程有新提交，倾向于 pull 场景），据此提出一个判断并跟用户确认，而不是自己悄悄二选一执行有副作用的操作。merge-base/pr 需要一个 base 分支名，用户没提就不要主动推断成这两个操作。
+2. 都没提到：先跑 `scripts/sync.sh status`。汇报时**先看最后一行的分支核对**：是 `BRANCH MISMATCH` 就把哪些仓库在哪条分支上讲给用户，问清楚应该统一到哪条分支，不要只说"都已同步"；是父仓库 detached HEAD 就先让用户把父仓库签出到应在的分支；是 `OK` 再往下看——看当前是 ahead（有本地未推送的提交，倾向于 push 场景）还是 behind（远程有新提交，倾向于 pull 场景），据此提出一个判断并跟用户确认，而不是自己悄悄二选一执行有副作用的操作。merge-base/pr 需要一个 base 分支名，用户没提就不要主动推断成这两个操作。
 
 ### pull 流程
 
@@ -94,5 +95,5 @@ scripts/sync.sh pr <base-branch> --draft             # 创建为 draft PR
 - 给 submodule 里的实际代码改动做 commit（脚本只处理"已经 commit 好、要不要 pull/push/merge/PR"这一层，不会替用户想 commit message 或决定要不要提交某些文件改动；commit 本身用 `yueban-git-commit` skill）。
 - 已停止维护、放在 `deprecated/` 之类路径下的历史 submodule：不参与"跨机器保持分支一致"的诉求，`scripts/sync.sh` 已经把它们排除在外（通过过滤 `.gitmodules` 里 `deprecated/` 开头的路径）。
 - 新增/删除 submodule、修改 `.gitmodules`：这些是结构性变更，超出"安全同步"的范围，照常手动处理。
-- **功能分支的全生命周期管理**（从 base 切分支、多机器间对齐这条功能分支本身、收尾报告、清理分支）：那是 `yueban-git-feature-branch-flow` 的职责。这个 skill 的 `merge-base`/`pr` 只做两个具体动作——"把 base 的新提交吸收进当前分支"和"把当前分支开 PR 合回 base"，不管这条分支是怎么切出来的、要不要清理，也不像 `yueban-git-feature-branch-flow` 那样把父仓库和各 submodule 按同一个 `<change-id>` 分支名配对（`merge-base`/`pr` 只要求每个仓库当前分支各自跟自己的 base 分支比较，不关心各仓库当前分支叫什么名字）。两者可以配合使用，也可以单独用：只是想让当前分支追上 base、或只是想开个 PR，不需要先跑一遍 `yueban-git-feature-branch-flow`。
+- **功能分支的全生命周期管理**（从 base 切分支、多机器间对齐这条功能分支本身、收尾报告、清理分支）：那是 `yueban-git-feature-branch-flow` 的职责。这个 skill 的 `merge-base`/`pr` 只做两个具体动作——"把 base 的新提交吸收进当前分支"和"把当前分支开 PR 合回 base"，不管这条分支是怎么切出来的、要不要清理，也不负责创建或切换分支——它只检查父仓库和各 submodule 已经在同名分支上（见「核心原则」第 5 条），不一致就 `BLOCKED`；统一切分支用 `yueban-git-feature-branch-flow` 或由用户手动处理。`yueban-git-feature-branch-flow` 收尾时如果选择本地合并（而不是 PR），要先把父仓库和各 submodule **一起**切回 base 分支再逐个合并 `<change-id>`，这样同名分支的前提一直成立，最后可以直接用 `push` 按"submodule 先、父仓库后"的顺序推送；只切了部分仓库时 `push` 会 `BLOCKED`。两者可以配合使用，也可以单独用：只是想让当前分支追上 base、或只是想开个 PR，不需要先跑一遍 `yueban-git-feature-branch-flow`。
 - **合并到 base 之后的收尾**（PR 被 review、合并进 base、之后要不要删分支）：这些是 GitHub 上人工评审和合并的过程，本 skill 不介入，也不会去检查 PR 的 review/合并状态。

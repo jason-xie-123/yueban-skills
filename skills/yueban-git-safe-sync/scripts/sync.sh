@@ -68,6 +68,22 @@ gh_in() {
   (cd "$path" && gh "$@")
 }
 
+# Submodules must sit on the same branch name as the superproject: that is the
+# pairing yueban-git-feature-branch-flow sets up (every repo on <change-id>, or
+# every repo on the base branch). A mismatch — e.g. superproject on a feature
+# branch while submodules stay on develop — means pulls/pushes/merges/PRs land
+# on a different branch than the superproject's recorded pointers belong to.
+# Prints a BLOCKED line and returns 1 on mismatch; detached/missing submodules
+# are reported by the callers' own checks, not here.
+check_branch_matches_super() {
+  local path="$1" branch="$2" super_branch="$3"
+  [ "$path" = "." ] && return 0
+  [ -z "$branch" ] || [ -z "$super_branch" ] && return 0
+  [ "$branch" = "$super_branch" ] && return 0
+  echo "BLOCKED: $path is on '$branch' but the superproject is on '$super_branch'. Submodules must be on the same branch as the superproject — check out '$super_branch' in $path by hand (or switch the superproject), then re-run. This tool will not pick one for you." >&2
+  return 1
+}
+
 sm_recorded_sha() {
   # What the superproject's HEAD currently records for this submodule path.
   git rev-parse -q --verify "HEAD:$1" 2>/dev/null || true
@@ -115,6 +131,9 @@ cmd_status() {
   echo
   echo "== submodules =="
   local path branch dirty rec head ab ahead behind
+  local super_branch
+  super_branch="$(sm_branch ".")"
+  local -a mismatched=()
   while IFS= read -r path; do
     [ -d "$path" ] || { echo "  $path: MISSING (not checked out)"; continue; }
     branch="$(sm_branch "$path")"
@@ -122,6 +141,10 @@ cmd_status() {
     rec="$(sm_recorded_sha "$path")"
     head="$(sm_head_sha "$path")"
     printf '  %s: branch=%s %s' "$path" "${branch:-<DETACHED>}" "$dirty"
+    if [ -n "$branch" ] && [ -n "$super_branch" ] && [ "$branch" != "$super_branch" ]; then
+      printf ' [BRANCH MISMATCH: superproject=%s]' "$super_branch"
+      mismatched+=("$path ($branch)")
+    fi
     if [ -n "$branch" ]; then
       if ab="$(sm_ahead_behind "$path" "$branch")"; then
         ahead="$(echo "$ab" | awk '{print $1}')"
@@ -136,6 +159,14 @@ cmd_status() {
     fi
     echo
   done < <(list_submodules)
+  echo
+  if [ -z "$super_branch" ]; then
+    echo "BRANCH CHECK: superproject is in detached HEAD — cannot compare branch names."
+  elif [ "${#mismatched[@]}" -gt 0 ]; then
+    echo "BRANCH MISMATCH: superproject is on '$super_branch', but these submodules are not: ${mismatched[*]}. pull/push/merge-base/pr will refuse to run until they match."
+  else
+    echo "BRANCH CHECK: OK — superproject and every submodule are on '$super_branch'."
+  fi
 }
 
 # --- pull ------------------------------------------------------------------
@@ -187,6 +218,7 @@ cmd_pull() {
       blocked=1
       continue
     fi
+    check_branch_matches_super "$path" "$branch" "$super_branch" || { blocked=1; continue; }
     if sm_is_dirty "$path"; then
       echo "BLOCKED: $path has uncommitted changes. Commit or stash inside the submodule first." >&2
       blocked=1
@@ -277,6 +309,7 @@ cmd_push() {
       blocked=1
       continue
     fi
+    check_branch_matches_super "$path" "$branch" "$super_branch" || { blocked=1; continue; }
     if sm_is_dirty "$path"; then
       echo "BLOCKED: $path has uncommitted changes. Commit inside the submodule first." >&2
       blocked=1
@@ -362,6 +395,8 @@ cmd_merge_base() {
   local -a merge_paths=() merge_branches=() skip_notes=()
   local path branch
   local blocked=0
+  local super_branch
+  super_branch="$(sm_branch ".")"
 
   while IFS= read -r path; do
     [ -d "$path" ] || { echo "BLOCKED: $path is not checked out." >&2; blocked=1; continue; }
@@ -371,11 +406,14 @@ cmd_merge_base() {
       blocked=1
       continue
     fi
+    check_branch_matches_super "$path" "$branch" "$super_branch" || { blocked=1; continue; }
     if path_is_dirty "$path"; then
       echo "BLOCKED: $path has uncommitted changes. Commit or stash first." >&2
       blocked=1
       continue
     fi
+    # With check_branch_matches_super above, this only fires when every repo
+    # (superproject included) is on the base branch itself.
     if [ "$branch" = "$base_branch" ]; then
       skip_notes+=("$path: already on $base_branch, nothing to merge")
       continue
@@ -483,6 +521,8 @@ cmd_pr() {
   local -a pr_paths=() pr_branches=() pr_titles=() pr_bodies=() skip_notes=()
   local path branch
   local blocked=0
+  local super_branch
+  super_branch="$(sm_branch ".")"
 
   while IFS= read -r path; do
     [ -d "$path" ] || { echo "BLOCKED: $path is not checked out." >&2; blocked=1; continue; }
@@ -492,6 +532,7 @@ cmd_pr() {
       blocked=1
       continue
     fi
+    check_branch_matches_super "$path" "$branch" "$super_branch" || { blocked=1; continue; }
     if path_is_dirty "$path"; then
       echo "BLOCKED: $path has uncommitted changes. Commit first." >&2
       blocked=1
@@ -506,6 +547,7 @@ cmd_pr() {
         continue
       fi
     fi
+    # Same as merge-base: only reachable when every repo is on the base branch.
     if [ "$branch" = "$base_branch" ]; then
       skip_notes+=("$path: on $base_branch itself, nothing to PR")
       continue
