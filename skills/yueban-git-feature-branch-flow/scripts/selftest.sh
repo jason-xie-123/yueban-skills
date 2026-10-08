@@ -81,6 +81,17 @@ out="$("${FLOW}" finish wt/feat3 --cleanup 2>&1)"; rc=$?
 check "cleanup works while the submodule's own checkout is on the branch" eval '! contains "another worktree"'
 check "cleanup removes the branch and its recorded base" eval '[ "${rc}" -eq 0 ] && ! has_branch . wt/feat3 && [ -z "$(git config --get flow-base.wt/feat3.base)" ]'
 
+echo "cleanup refuses base branches"
+for b in main develop; do
+  git branch -q "${b}" 2>/dev/null; git -C sub branch -q "${b}" 2>/dev/null
+  out="$("${FLOW}" finish "${b}" --cleanup 2>&1)"; rc=$?
+  check "cleanup refuses to delete '${b}'" eval '[ "${rc}" -eq 2 ] && contains "never deletes main or develop" && has_branch . "${b}" && has_branch sub "${b}"'
+done
+git branch -q release develop; git -C sub branch -q release develop
+out="$("${FLOW}" finish release --base release --cleanup 2>&1)"; rc=$?
+check "cleanup refuses a change-id equal to its base" eval '[ "${rc}" -eq 2 ] && contains "base branch or origin" && has_branch . release'
+git branch -q -D release; git -C sub branch -q -D release
+
 echo "snippets used by yueban-git-commit and yueban-spec-*"
 git worktree add -q --detach "../wt detached" HEAD
 check "branch check passes on a branch" eval 'git symbolic-ref -q --short HEAD >/dev/null'

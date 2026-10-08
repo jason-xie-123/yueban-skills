@@ -570,6 +570,14 @@ cmd_finish() {
   }
 
   if [ "$cleanup" = "1" ]; then
+    # Long-lived base branches are never feature branches: refuse before
+    # touching anything, whatever the merge checks below would say.
+    case "$change_id" in
+      main|develop)
+        echo "BLOCKED: '$change_id' is a base branch, not a feature branch — --cleanup never deletes main or develop. Nothing deleted." >&2
+        return 2
+        ;;
+    esac
     local -a can_delete=() remote_sha=()
     local blocked=0
     while IFS= read -r path; do
@@ -580,6 +588,11 @@ cmd_finish() {
         continue
       fi
       local base; base="$(resolve_base "$path")" || { blocked=1; can_delete+=("0"); remote_sha+=(""); continue; }
+      if [ "$change_id" = "$base" ] || [ "$change_id" = "$(repo_default_base "$path")" ]; then
+        echo "BLOCKED: $path: '$change_id' is this repo's base branch or origin's default branch — --cleanup never deletes it." >&2
+        blocked=1
+        continue
+      fi
       repo_fetch_branch "$path" "$base"
       # origin/<change-id> may hold commits pushed from another machine that
       # never reached this one: deleting it would lose them.
