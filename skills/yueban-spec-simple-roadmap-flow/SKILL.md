@@ -1,12 +1,16 @@
 ---
 name: yueban-spec-simple-roadmap-flow
-description: 轻量版 ROADMAP 批量推进：按 openspec/changes/ROADMAP.md 的顺序，逐个用 yueban-spec-simple-single-change-flow 把所有待办 change 做完。只有当用户用自己的话明确点名本 skill，或明确要求用"轻量/简单流程"把 ROADMAP 剩下的 change 全部跑完时才调用。不要从一般性 OpenSpec 讨论、提到 ROADMAP.md、或只处理单个 change 的请求里推断适用；它会连续改代码并反复 commit（不 push）。分不清要的是本 skill 还是重版 yueban-spec-roadmap-flow 时，先问。
+description: 'Run every pending change in openspec/changes/ROADMAP.md through yueban-spec-simple-single-change-flow (commits, no push). Only when the user names this skill or asks for the lightweight flow.'
 license: MIT
 compatibility: Requires the openspec CLI (on PATH), git, and the yueban-spec-simple-single-change-flow skill. No Workflow tool needed.
 allowed-tools: Bash, Read, Edit, Write, Grep, Glob, Skill, AskUserQuestion
 ---
 
 # OpenSpec ROADMAP 轻量批量推进
+
+## 何时使用与边界
+
+轻量版 ROADMAP 批量推进：按 openspec/changes/ROADMAP.md 的顺序，逐个用 yueban-spec-simple-single-change-flow 把所有待办 change 做完。只有当用户用自己的话明确点名本 skill，或明确要求用"轻量/简单流程"把 ROADMAP 剩下的 change 全部跑完时才调用。不要从一般性 OpenSpec 讨论、提到 ROADMAP.md、或只处理单个 change 的请求里推断适用；它会连续改代码并反复 commit（不 push）。分不清要的是本 skill 还是重版 yueban-spec-roadmap-flow 时，先问。
 
 按 `openspec/changes/ROADMAP.md` 的顺序，把待办 change 一个一个交给 [`yueban-spec-simple-single-change-flow`](../yueban-spec-simple-single-change-flow/SKILL.md) 做完。本 skill 只负责**挑顺序**和**维护待办清单**，每个 change 具体怎么做全在那个 skill 里。
 

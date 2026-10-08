@@ -1,10 +1,15 @@
 ---
 name: yueban-git-safe-sync
-description: '在带 git submodule 的仓库里执行 pull、push、把 base 分支合并进当前分支、或对父仓库+全部 submodule 开 GitHub PR，保证每个当前维护的 submodule（从 .gitmodules 动态发现，排除 deprecated/ 前缀的历史/冻结模块）始终停留在其原有分支上（具体叫什么以项目实际约定为准；要求父仓库和各 submodule 签出同名分支，分支名不一致时一律 BLOCKED），绝不因为这些操作而把 submodule 变成游离 HEAD（detached HEAD）或强制签出到父仓库记录的 SHA。pull/push 适合"在多台机器上跑同一套项目、submodule 分支状态必须跨机器保持一致"的场景；merge-base/pr 适合"当前在一条从 base 切出的功能分支上，要把 base 的新提交合进来，或者要把这条分支开 PR 合回 base"的场景。**仅显式触发**：只有用户明确输入 `/yueban-git-safe-sync`，或明确说要用这个 skill 时才调用；用户只是随口说"pull 一下""push 一下""同步一下代码""合并一下 develop""开个 PR"这类泛化表述，不要自作主张联想到这个 skill——先按普通 git 操作处理或直接追问，除非用户点名。'
+description: 'Manual only (/yueban-git-safe-sync). pull, push, merge the base branch or open PRs in a repo with submodules, keeping every submodule on the parent''s branch name (never detached HEAD).'
+disable-model-invocation: true
 allowed-tools: Bash
 ---
 
 # Submodule 安全同步（pull / push / merge-base / pr）
+
+## 何时使用与边界
+
+在带 git submodule 的仓库里执行 pull、push、把 base 分支合并进当前分支、或对父仓库+全部 submodule 开 GitHub PR，保证每个当前维护的 submodule（从 .gitmodules 动态发现，排除 deprecated/ 前缀的历史/冻结模块）始终停留在其原有分支上（具体叫什么以项目实际约定为准；要求父仓库和各 submodule 签出同名分支，分支名不一致时一律 BLOCKED），绝不因为这些操作而把 submodule 变成游离 HEAD（detached HEAD）或强制签出到父仓库记录的 SHA。pull/push 适合"在多台机器上跑同一套项目、submodule 分支状态必须跨机器保持一致"的场景；merge-base/pr 适合"当前在一条从 base 切出的功能分支上，要把 base 的新提交合进来，或者要把这条分支开 PR 合回 base"的场景。**仅显式触发**：只有用户明确输入 `/yueban-git-safe-sync`，或明确说要用这个 skill 时才调用；用户只是随口说"pull 一下""push 一下""同步一下代码""合并一下 develop""开个 PR"这类泛化表述，不要自作主张联想到这个 skill——先按普通 git 操作处理或直接追问，除非用户点名。
 
 > ⚠️ **仅手动触发**：只有用户明确输入 `/yueban-git-safe-sync`，或明确点名要用这个 skill 时才执行下面的流程。普通的"帮我 pull/push 一下"不要自动联想到这里。
 

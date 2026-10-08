@@ -1,10 +1,15 @@
 ---
 name: yueban-docs-format-conversion
-description: '盘点 `docs/`（或用户指定目录）下混杂的 html/docx/xlsx/pdf 等格式文件，按「是否带交互」「是否靠版面传递信息」「体量与转换收益」等规则判断每个文件该保留原格式还是转成 md/pdf，用 pandoc/pdftotext/openpyxl/headless Chrome/mermaid-cli 执行转换并逐项核对无损，最后更新目录说明文档。**仅显性触发**：只有用户明确输入 `/yueban-docs-format-conversion`，或明确点名要用这个 skill/要做一次文件格式盘点转换时才调用；不要仅凭用户说"这个 docs 目录 AI 读不懂""把这些文档转成 md""整理一下这堆文档格式"之类的自然语言请求就主动联想触发——这类泛化表述先向用户确认是否要跑这套批量盘点转换流程，不要自作主张。也不要在用户只是想读某个具体文件内容、或只想转换单个孤立文件（不涉及目录级盘点）时触发，这两种场景不需要这个 skill。'
+description: 'Manual only (/yueban-docs-format-conversion). Inventory html/docx/xlsx/pdf files under docs/, decide per file whether to keep it or convert it to md/pdf, convert and verify nothing is lost.'
+disable-model-invocation: true
 allowed-tools: Bash, Read, Write, Edit, Grep, Glob, AskUserQuestion
 ---
 
 # docs 文件格式盘点与 AI 友好化改造
+
+## 何时使用与边界
+
+盘点 `docs/`（或用户指定目录）下混杂的 html/docx/xlsx/pdf 等格式文件，按「是否带交互」「是否靠版面传递信息」「体量与转换收益」等规则判断每个文件该保留原格式还是转成 md/pdf，用 pandoc/pdftotext/openpyxl/headless Chrome/mermaid-cli 执行转换并逐项核对无损，最后更新目录说明文档。**仅显性触发**：只有用户明确输入 `/yueban-docs-format-conversion`，或明确点名要用这个 skill/要做一次文件格式盘点转换时才调用；不要仅凭用户说"这个 docs 目录 AI 读不懂""把这些文档转成 md""整理一下这堆文档格式"之类的自然语言请求就主动联想触发——这类泛化表述先向用户确认是否要跑这套批量盘点转换流程，不要自作主张。也不要在用户只是想读某个具体文件内容、或只想转换单个孤立文件（不涉及目录级盘点）时触发，这两种场景不需要这个 skill。
 
 > ⚠️ **仅显性触发**：只有用户明确输入 `/yueban-docs-format-conversion`，或明确点名要用这个 skill/要做一次文件格式盘点转换时才执行下面的流程。不要仅凭"这个目录 AI 读不懂""把这些文档转成 md"这类泛化的自然语言请求就联想触发并直接开始批量转换——先向用户确认是否要跑这套流程，不要自作主张，这套流程涉及批量转换和删除原文件，代价比读一下文件内容大得多。
 

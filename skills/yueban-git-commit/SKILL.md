@@ -1,10 +1,14 @@
 ---
 name: yueban-git-commit
-description: 'Perform a git commit following Conventional Commits, with commit message analysis, smart staging, and message generation. Use when the user asks to commit code, create a commit, or mentions "/commit". Supports: (1) auto-detecting type and scope from the diff, (2) generating a conventional commit message from the diff, (3) interactive commits (overriding type/scope/description), (4) smart staging by logical grouping, (5) pushing to the remote after commit, once confirmed (skip asking only if the user''s request already implied pushing).'
+description: 'Commit with a Conventional Commits message generated from the diff, with smart staging and an optional push once confirmed. Use when asked to commit code or on /commit.'
 allowed-tools: Bash
 ---
 
 # Git Commit with Conventional Commits
+
+## When to use
+
+Perform a git commit following Conventional Commits, with commit message analysis, smart staging, and message generation. Use when the user asks to commit code, create a commit, or mentions "/commit". Supports: (1) auto-detecting type and scope from the diff, (2) generating a conventional commit message from the diff, (3) interactive commits (overriding type/scope/description), (4) smart staging by logical grouping, (5) pushing to the remote after commit, once confirmed (skip asking only if the user's request already implied pushing).
 
 ## Overview
 

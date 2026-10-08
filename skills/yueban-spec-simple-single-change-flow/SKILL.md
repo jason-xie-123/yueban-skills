@@ -1,12 +1,16 @@
 ---
 name: yueban-spec-simple-single-change-flow
-description: 轻量版单 change 流程：review 整个 spec → 修掉问题 → apply → review 本地改动的代码 → archive → commit（不 push）。只有当用户用自己的话明确点名本 skill，或明确要求用"轻量/简单流程"推进某一个 OpenSpec change 时才调用。不要从一般性 OpenSpec 讨论、提到 ROADMAP.md 或 openspec/changes/ 推断适用；它会改代码并真实 commit。用户说"推进下一个 spec"这类话、分不清要的是本 skill 还是重版 yueban-spec-single-change-flow 时，先问。
+description: 'Lightweight flow for one OpenSpec change: review the spec, fix, apply, review the code, archive, commit (no push). Only when the user names this skill or asks for the lightweight flow.'
 license: MIT
 compatibility: Requires the openspec CLI (on PATH), git, and the openspec-apply-change skill (installed by `openspec init`/`openspec update`). No Workflow tool needed; works in any agent client.
 allowed-tools: Bash, Read, Edit, Write, Grep, Glob, Skill, Agent, AskUserQuestion
 ---
 
 # OpenSpec 单 change 轻量流程
+
+## 何时使用与边界
+
+轻量版单 change 流程：review 整个 spec → 修掉问题 → apply → review 本地改动的代码 → archive → commit（不 push）。只有当用户用自己的话明确点名本 skill，或明确要求用"轻量/简单流程"推进某一个 OpenSpec change 时才调用。不要从一般性 OpenSpec 讨论、提到 ROADMAP.md 或 openspec/changes/ 推断适用；它会改代码并真实 commit。用户说"推进下一个 spec"这类话、分不清要的是本 skill 还是重版 yueban-spec-single-change-flow 时，先问。
 
 把一个 pending change 从 spec 推到提交：**review spec → 修 → apply → review 代码 → archive → commit**。各步之间不停下来等确认，一口气做完。
 
