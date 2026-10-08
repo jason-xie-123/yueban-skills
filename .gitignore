@@ -36,3 +36,5 @@ token.json
 .agents/skills/yueban-proj-prune-historical
 .agents/skills/yueban-spec-simple-roadmap-flow
 .agents/skills/yueban-spec-simple-single-change-flow
+.agents/skills/yueban-spec-simple-worktree-roadmap-flow
+.agents/skills/yueban-spec-simple-worktree-single-change-flow
