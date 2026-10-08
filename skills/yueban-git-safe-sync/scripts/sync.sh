@@ -14,24 +14,52 @@
 #   0 = clean / completed
 #   1 = usage error
 #   2 = at least one submodule (or the superproject) is blocked; nothing was
-#       changed for pull, and nothing was pushed for push. For merge-base,
+#       changed for pull, and nothing was pushed for push (unless a push itself
+#       failed midway — stderr lists what was already pushed). For merge-base,
 #       everything up to (not including) the first conflicting repo was
 #       already merged; for pr, every PR before the first failed
 #       `gh pr create` was already opened — see stderr for exactly which ones.
 
 set -uo pipefail
 
-REPO_ROOT="$(git rev-parse --show-toplevel)"
+REPO_ROOT="$(git rev-parse --show-toplevel)" || exit 1
 cd "$REPO_ROOT" || exit 1
+
+# Run inside a submodule, every command would treat that one submodule as the
+# whole project (and push or merge it alone). A repo that has its own
+# .gitmodules is a superproject even if it is nested in another one.
+SUPER_ROOT="$(git rev-parse --show-superproject-working-tree 2>/dev/null)"
+if [ -n "$SUPER_ROOT" ] && [ ! -f .gitmodules ]; then
+  echo "BLOCKED: this is a submodule ($REPO_ROOT). Run this from its superproject: $SUPER_ROOT" >&2
+  exit 2
+fi
 
 # --- helpers -----------------------------------------------------------
 
 list_submodules() {
   # Active submodules only: paths under deprecated/ are intentionally out of
   # scope (see SKILL.md) — they don't need to stay in lockstep across machines.
-  git config -f .gitmodules --get-regexp '\.path$' 2>/dev/null \
-    | awk '{print $2}' \
-    | grep -v '^deprecated/'
+  # -z output is "<key>\n<value>\0", so paths with spaces survive.
+  local entry path
+  git config -z -f .gitmodules --get-regexp '\.path$' 2>/dev/null \
+    | while IFS= read -r -d '' entry; do
+        path="${entry#*$'\n'}"
+        case "$path" in deprecated/*) continue ;; esac
+        printf '%s\n' "$path"
+      done
+}
+
+# True if $1 is a repo checked out in its own right ("." always is). An
+# uninitialised submodule is an empty directory, where `git -C` silently finds
+# the superproject instead: every check, merge and push would hit the wrong repo.
+sm_present() {
+  [ "$1" = "." ] && return 0
+  [ -e "$1/.git" ] || return 1
+  [ "$(git -C "$1" rev-parse --show-toplevel 2>/dev/null)" = "$(cd "$1" && pwd -P)" ]
+}
+
+missing_msg() {
+  echo "$1 is not checked out (an uninitialised submodule) — initialise it first (e.g. git submodule update --init $1, or the project's own worktree setup) and put it on the superproject's branch, then re-run."
 }
 
 sm_branch() {
@@ -58,8 +86,66 @@ path_is_dirty() {
 # Submodule paths whose checked-out commit differs from what the
 # superproject's HEAD records (staged or not). merge-base tolerates this, but
 # pr must not: the superproject's PR would reference the old submodule SHAs.
+# Only active submodules count: deprecated/ ones are out of scope.
 super_uncommitted_gitlinks() {
-  git diff --name-only --ignore-submodules=dirty HEAD 2>/dev/null
+  local active p
+  active="$(list_submodules)"
+  git diff --name-only --ignore-submodules=dirty HEAD 2>/dev/null \
+    | while IFS= read -r p; do
+        printf '%s\n' "$active" | grep -qxF -- "$p" && printf '%s\n' "$p"
+      done
+}
+
+# True if submodule commit $2 will be on $1's origin once this push is done:
+# either it is reachable from the submodule HEAD that push sends (or that is
+# already up to date on origin), or a branch on origin contains it. Only
+# origin counts (a fork is not where clones fetch from); callers prune-fetch
+# first, so a branch deleted on origin no longer counts.
+gitlink_published() {
+  git -C "$1" cat-file -e "$2^{commit}" 2>/dev/null || return 1
+  git -C "$1" merge-base --is-ancestor "$2" HEAD 2>/dev/null && return 0
+  [ -n "$(git -C "$1" for-each-ref --contains "$2" refs/remotes/origin 2>/dev/null)" ]
+}
+
+# Prints "<tip|history> <superproject commit> <submodule path> <recorded sha>"
+# for every submodule pointer recorded by the superproject commits in
+# origin/<branch>..HEAD that would not be on the submodule's remote after this
+# push — e.g. the submodule commit was amended or reset after the pointer was
+# recorded. "tip" means HEAD records it, so clones of the pushed branch can't
+# check the submodule out; "history" means only an older commit in the range
+# does, which only breaks checking out that commit (bisect, reverts).
+# Pointers equal to what origin/<branch> already records are not re-checked.
+# On a branch's first push the range is every commit not yet on origin.
+unpublished_gitlinks() {
+  local super_branch="$1" path c sha old seen fetched where head
+  local -a range
+  head="$(git rev-parse HEAD)"
+  if git rev-parse -q --verify "refs/remotes/origin/$super_branch" >/dev/null; then
+    range=("origin/$super_branch..HEAD")
+  else
+    range=(HEAD --not --remotes=origin)
+  fi
+  while IFS= read -r path; do
+    sm_present "$path" || continue
+    seen=" "; fetched=0
+    old="$(git rev-parse -q --verify "origin/$super_branch:$path" 2>/dev/null || true)"
+    while IFS= read -r c; do
+      sha="$(git rev-parse -q --verify "$c:$path" 2>/dev/null)" || continue
+      [ "$sha" = "$old" ] && continue
+      case "$seen" in *" $sha "*) continue ;; esac
+      seen="$seen$sha "
+      git -C "$path" merge-base --is-ancestor "$sha" HEAD 2>/dev/null && continue
+      if [ "$fetched" -eq 0 ]; then
+        # Remote-tracking refs may be stale or deleted on origin: prune-fetch
+        # once before trusting them.
+        git -C "$path" fetch --quiet --prune origin 2>/dev/null || true
+        fetched=1
+      fi
+      gitlink_published "$path" "$sha" && continue
+      where=history; [ "$c" = "$head" ] && where=tip
+      echo "$where ${c:0:8} $path ${sha:0:8}"
+    done < <(git rev-list "${range[@]}")
+  done < <(list_submodules)
 }
 
 # Run gh inside a repo directory — gh has no `-C` flag like git does.
@@ -135,7 +221,7 @@ cmd_status() {
   super_branch="$(sm_branch ".")"
   local -a mismatched=()
   while IFS= read -r path; do
-    [ -d "$path" ] || { echo "  $path: MISSING (not checked out)"; continue; }
+    sm_present "$path" || { echo "  $path: MISSING (not checked out — uninitialised submodule)"; continue; }
     branch="$(sm_branch "$path")"
     dirty="clean"; sm_is_dirty "$path" && dirty="DIRTY"
     rec="$(sm_recorded_sha "$path")"
@@ -211,7 +297,7 @@ cmd_pull() {
   local blocked=0
 
   while IFS= read -r path; do
-    [ -d "$path" ] || { echo "BLOCKED: $path is not checked out (run a plain git submodule update --init once, outside this flow)." >&2; blocked=1; continue; }
+    sm_present "$path" || { echo "BLOCKED: $(missing_msg "$path")" >&2; blocked=1; continue; }
     branch="$(sm_branch "$path")"
     if [ -z "$branch" ]; then
       echo "BLOCKED: $path is already in detached HEAD. Resolve manually first (checkout the intended branch) — this tool will not guess which branch you meant." >&2
@@ -250,7 +336,7 @@ cmd_pull() {
   echo "Pulling superproject (top-level refs only, submodules handled separately)..."
   if [ "$super_behind" -gt 0 ]; then
     run_step "superproject fast-forward of $super_branch to origin/$super_branch failed unexpectedly (see output above — e.g. a conflict). Nothing else was touched; resolve the superproject by hand before re-running." \
-      git merge --ff-only "origin/$super_branch" || return 2
+      git -c submodule.recurse=false merge --ff-only "origin/$super_branch" || return 2
   else
     echo "Already up to date."
   fi
@@ -260,7 +346,7 @@ cmd_pull() {
     path="${paths[$i]}"; branch="${branches[$i]}"
     echo "-- $path: fast-forwarding $branch to origin/$branch --"
     run_step "$path: fast-forward of $branch failed unexpectedly. The superproject was already pulled; resolve $path by hand, then re-run." \
-      git -C "$path" merge --ff-only "origin/$branch" || return 2
+      git -C "$path" -c submodule.recurse=false merge --ff-only "origin/$branch" || return 2
   done
 
   echo
@@ -270,39 +356,59 @@ cmd_pull() {
 
 # --- push ------------------------------------------------------------------
 
+# Pushes $1's HEAD to origin/<$2>, by name rather than through the branch's
+# upstream: a branch created from origin/develop tracks develop, and a plain
+# `git push` would then refuse, or with push.default=upstream publish the
+# feature branch onto develop. -u only when no upstream is configured, so an
+# existing one is never rewritten.
+push_head() {
+  local -a u=()
+  git -C "$1" config --get "branch.$2.merge" >/dev/null 2>&1 || u=(-u)
+  git -C "$1" push ${u[@]+"${u[@]}"} origin "HEAD:refs/heads/$2"
+}
+
+# Prints "AHEAD BEHIND NEW" for $1 on branch $2: NEW is 1 when origin has no
+# such branch yet (first push), and AHEAD then counts commits not on origin at all.
+push_counts() {
+  local ab
+  if ab="$(sm_ahead_behind "$1" "$2")"; then
+    echo "$ab 0"
+  else
+    echo "$(git -C "$1" rev-list --count HEAD --not --remotes=origin 2>/dev/null || echo 0) 0 1"
+  fi
+}
+
 cmd_push() {
   local dry_run=0
-  [ "${1:-}" = "--dry-run" ] && dry_run=1
+  case "${1:-}" in
+    "") ;;
+    --dry-run) dry_run=1 ;;
+    *) echo "Usage: $0 push [--dry-run]" >&2; return 1 ;;
+  esac
 
   local -a push_paths=() push_branches=()
   local path branch
   local blocked=0
-  local super_ahead super_behind
+  local super_ahead super_behind super_new
 
-  # Same divergence check cmd_pull does for the superproject, so a plain
-  # `git push` failing on non-fast-forward isn't the first time we notice
-  # the superproject is behind — we report it alongside the other BLOCKED
-  # items instead of failing mid-push after submodules already went out.
-  local super_branch super_ab
+  # Same divergence check cmd_pull does for the superproject, so a failing
+  # push isn't the first time we notice the superproject is behind — we
+  # report it alongside the other BLOCKED items instead of failing mid-push
+  # after submodules already went out.
+  local super_branch
   super_branch="$(sm_branch ".")"
   if [ -z "$super_branch" ]; then
     echo "BLOCKED: superproject is in detached HEAD. Resolve manually first (checkout the intended branch)." >&2
     return 2
   fi
-  if super_ab="$(sm_ahead_behind "." "$super_branch")"; then
-    super_ahead="$(echo "$super_ab" | awk '{print $1}')"
-    super_behind="$(echo "$super_ab" | awk '{print $2}')"
-    if [ "$super_behind" -gt 0 ]; then
-      echo "BLOCKED: superproject ($super_branch) is behind origin/$super_branch by $super_behind commit(s) (ahead $super_ahead). Pull first — this tool never force-pushes." >&2
-      return 2
-    fi
-  else
-    echo "BLOCKED: superproject branch '$super_branch' has no origin/$super_branch — first push needs to be done by hand (git push -u origin $super_branch)." >&2
-    return 2
+  read -r super_ahead super_behind super_new < <(push_counts "." "$super_branch")
+  if [ "$super_behind" -gt 0 ]; then
+    echo "BLOCKED: superproject ($super_branch) is behind origin/$super_branch by $super_behind commit(s) (ahead $super_ahead). Pull first — this tool never force-pushes." >&2
+    blocked=1
   fi
 
   while IFS= read -r path; do
-    [ -d "$path" ] || { echo "BLOCKED: $path is not checked out." >&2; blocked=1; continue; }
+    sm_present "$path" || { echo "BLOCKED: $(missing_msg "$path")" >&2; blocked=1; continue; }
     branch="$(sm_branch "$path")"
     if [ -z "$branch" ]; then
       echo "BLOCKED: $path is in detached HEAD — its commits aren't on any branch, so they can't be safely pushed. Resolve manually." >&2
@@ -315,27 +421,43 @@ cmd_push() {
       blocked=1
       continue
     fi
-    local ab ahead behind
-    if ! ab="$(sm_ahead_behind "$path" "$branch")"; then
-      echo "BLOCKED: $path branch '$branch' has no origin/$branch — first push needs to be done by hand (git -C $path push -u origin $branch)." >&2
-      blocked=1
-      continue
-    fi
-    ahead="$(echo "$ab" | awk '{print $1}')"
-    behind="$(echo "$ab" | awk '{print $2}')"
+    local ahead behind new
+    read -r ahead behind new < <(push_counts "$path" "$branch")
     if [ "$behind" -gt 0 ]; then
       echo "BLOCKED: $path ($branch) is behind origin/$branch by $behind commit(s) (ahead $ahead). Pull first — this tool never force-pushes." >&2
       blocked=1
       continue
     fi
-    if [ "$ahead" -gt 0 ]; then
+    if [ "$new" -eq 1 ]; then
+      echo "PLAN: $path — first push: create origin/$branch ($ahead commit(s) not on origin yet)"
+      push_paths+=("$path")
+      push_branches+=("$branch")
+    elif [ "$ahead" -gt 0 ]; then
       echo "PLAN: $path — push $ahead commit(s) to origin/$branch"
       push_paths+=("$path")
       push_branches+=("$branch")
     else
       echo "PLAN: $path — up to date, nothing to push"
     fi
+    local rec head
+    rec="$(sm_recorded_sha "$path")"; head="$(sm_head_sha "$path")"
+    if [ -n "$rec" ] && [ "$rec" != "$head" ]; then
+      echo "NOTE: $path is at ${head:0:8} but the superproject's HEAD records ${rec:0:8} — the superproject push will not reference the newer submodule commits until that pointer is committed."
+    fi
   done < <(list_submodules)
+
+  if [ "$blocked" -eq 0 ]; then
+    local uwhere ucommit upath usha
+    while read -r uwhere ucommit upath usha; do
+      [ -n "$usha" ] || continue
+      if [ "$uwhere" = history ]; then
+        echo "NOTE: older superproject commit $ucommit (not the tip being pushed) records $upath at $usha, which is not on $upath's remote — checking out that commit later (bisect, revert) can't fetch the submodule. The pushed tip is fine."
+        continue
+      fi
+      echo "BLOCKED: superproject commit $ucommit (the tip being pushed) records $upath at $usha, which is neither on $upath's remote nor in the $upath branch this push sends (e.g. the submodule commit was amended or reset after the pointer was recorded). Pushing it would leave a pointer nobody can fetch. Commit the submodule's current pointer in the superproject, or push $usha inside $upath, then re-run." >&2
+      blocked=1
+    done < <(unpublished_gitlinks "$super_branch")
+  fi
 
   if [ "$blocked" -ne 0 ]; then
     echo
@@ -343,8 +465,10 @@ cmd_push() {
     return 2
   fi
 
-  if [ "$super_ahead" -gt 0 ]; then
-    echo "PLAN: superproject — push $super_ahead commit(s)"
+  if [ "$super_new" -eq 1 ]; then
+    echo "PLAN: superproject — first push: create origin/$super_branch ($super_ahead commit(s) not on origin yet), after the submodules"
+  elif [ "$super_ahead" -gt 0 ]; then
+    echo "PLAN: superproject — push $super_ahead commit(s) to origin/$super_branch"
   else
     echo "PLAN: superproject — up to date, nothing to push"
   fi
@@ -361,28 +485,72 @@ cmd_push() {
     path="${push_paths[$i]}"; branch="${push_branches[$i]}"
     echo "-- pushing $path ($branch) --"
     run_step "$path: push to origin/$branch failed. Stopping — already pushed: ${pushed_paths[*]:-<none>}. The superproject was NOT pushed. Resolve $path by hand, then re-run." \
-      git -C "$path" push origin "HEAD:refs/heads/$branch" || return 2
+      push_head "$path" "$branch" || return 2
     pushed_paths+=("$path")
   done
 
-  if [ "$super_ahead" -gt 0 ]; then
-    echo "-- pushing superproject --"
+  if [ "$super_new" -eq 1 ] || [ "$super_ahead" -gt 0 ]; then
+    echo "-- pushing superproject ($super_branch) --"
     run_step "superproject push failed. All submodule commits above were already pushed to their own remotes; resolve the superproject by hand, then re-run (the submodule pushes will just report 'up to date')." \
-      git push || return 2
+      push_head "." "$super_branch" || return 2
   fi
 
   echo
-  echo "Done. Submodule commits were pushed before the superproject, so its recorded pointers are never ahead of what's on the remote."
+  echo "Done. Submodule commits were pushed before the superproject, and every pointer the pushed superproject tip records was checked to exist on its submodule's remote."
 }
 
 # --- merge-base --------------------------------------------------------
 
-# Superproject (".") plus every active submodule, in that order — used by
-# merge-base and pr, which (unlike pull/push) treat the superproject and its
-# submodules identically instead of needing push-order sequencing.
+# Every active submodule, then the superproject (".") last — used by
+# merge-base and pr. Submodules come first because the superproject's merge
+# (and PR) has to record the submodule commits that exist once those are done.
 all_paths() {
-  echo "."
   list_submodules
+  echo "."
+}
+
+# Merges origin/<base> into the superproject. When the base side moved a
+# submodule pointer, git records the base's commit or stops on a gitlink
+# conflict — neither includes the submodule merge this command just made. So
+# for every such path whose submodule HEAD contains both sides' recorded
+# commits, the pointer is set to that HEAD before committing. Pointers only
+# our side moved are left as recorded: the submodule may hold further commits
+# the user hasn't chosen to record. A fast-forward records the base's pointers
+# as they are (pointer lag, see SKILL.md).
+# Returns 0 when merged (or fast-forwarded), 1 when git refused to start, 3 when
+# conflicts remain (repo left mid-merge, resolvable gitlinks already set), 4
+# when the merge commit itself failed (e.g. a hook rejected it).
+merge_superproject() {
+  local base="$1" p ours theirs mb_rec head ok s mb
+  if git -c submodule.recurse=false merge --no-edit --no-commit "origin/$base"; then
+    git rev-parse -q --verify MERGE_HEAD >/dev/null || return 0
+  else
+    git rev-parse -q --verify MERGE_HEAD >/dev/null || return 1
+  fi
+  mb="$(git merge-base HEAD MERGE_HEAD 2>/dev/null || true)"
+  while IFS= read -r p; do
+    sm_present "$p" || continue
+    ours="$(git rev-parse -q --verify "HEAD:$p" 2>/dev/null || true)"
+    theirs="$(git rev-parse -q --verify "MERGE_HEAD:$p" 2>/dev/null || true)"
+    mb_rec=""
+    [ -n "$mb" ] && mb_rec="$(git rev-parse -q --verify "$mb:$p" 2>/dev/null || true)"
+    [ "$ours" != "$theirs" ] || continue
+    [ "$theirs" != "$mb_rec" ] || continue
+    head="$(sm_head_sha "$p")"
+    [ -n "$head" ] || continue
+    ok=1
+    for s in "$ours" "$theirs"; do
+      [ -z "$s" ] && continue
+      git -C "$p" merge-base --is-ancestor "$s" "$head" 2>/dev/null || ok=0
+    done
+    if [ "$ok" -eq 1 ]; then
+      git update-index --cacheinfo "160000,$head,$p" || return 3
+      echo "   $p: recording ${head:0:8} (contains both sides' pointers)"
+    fi
+  done < <(list_submodules)
+  [ -z "$(git diff --name-only --diff-filter=U)" ] || return 3
+  git commit --no-edit --quiet || return 4
+  return 0
 }
 
 cmd_merge_base() {
@@ -399,7 +567,7 @@ cmd_merge_base() {
   super_branch="$(sm_branch ".")"
 
   while IFS= read -r path; do
-    [ -d "$path" ] || { echo "BLOCKED: $path is not checked out." >&2; blocked=1; continue; }
+    sm_present "$path" || { echo "BLOCKED: $(missing_msg "$path")" >&2; blocked=1; continue; }
     branch="$(sm_branch "$path")"
     if [ -z "$branch" ]; then
       echo "BLOCKED: $path is in detached HEAD. Resolve manually first (checkout the intended branch)." >&2
@@ -407,6 +575,11 @@ cmd_merge_base() {
       continue
     fi
     check_branch_matches_super "$path" "$branch" "$super_branch" || { blocked=1; continue; }
+    if git -C "$path" rev-parse -q --verify MERGE_HEAD >/dev/null; then
+      echo "BLOCKED: $path has a merge in progress. Finish it (\`git -C $path commit\`) or cancel it (\`git -C $path merge --abort\`) first — this tool won't commit a merge it didn't start." >&2
+      blocked=1
+      continue
+    fi
     if path_is_dirty "$path"; then
       echo "BLOCKED: $path has uncommitted changes. Commit or stash first." >&2
       blocked=1
@@ -459,16 +632,31 @@ cmd_merge_base() {
   for i in "${!merge_paths[@]}"; do
     path="${merge_paths[$i]}"; branch="${merge_branches[$i]}"
     echo "-- $path: merging origin/$base_branch into $branch --"
-    # --no-edit: take git's default merge message instead of opening an editor
-    # when run from an interactive terminal.
-    if ! git -C "$path" merge --no-edit origin/"$base_branch"; then
-      if ! git -C "$path" rev-parse -q --verify MERGE_HEAD >/dev/null; then
-        echo "BLOCKED: $path — merge of origin/$base_branch into $branch failed before starting (see git's message above); $path was not changed. Already merged before this: ${merged_paths[*]:-<none>}. Stopping — remaining repos were not touched." >&2
-        return 2
+    local rc=0
+    if [ "$path" = "." ]; then
+      merge_superproject "$base_branch" || rc=$?
+    else
+      # --no-edit: take git's default merge message instead of opening an
+      # editor when run from an interactive terminal.
+      if ! git -C "$path" -c submodule.recurse=false merge --no-edit origin/"$base_branch"; then
+        rc=3
+        git -C "$path" rev-parse -q --verify MERGE_HEAD >/dev/null || rc=1
       fi
+    fi
+    if [ "$rc" -eq 4 ]; then
+      echo "BLOCKED: $path — the merge of origin/$base_branch into $branch has no conflicts left but \`git commit\` failed (see git's message above, e.g. a hook). The repo is left mid-merge: fix that and run \`git -C $path commit --no-edit\`, or \`git -C $path merge --abort\`. Already merged before this: ${merged_paths[*]:-<none>}." >&2
+      return 2
+    fi
+    if [ "$rc" -eq 1 ]; then
+      echo "BLOCKED: $path — merge of origin/$base_branch into $branch failed before starting (see git's message above); $path was not changed. Already merged before this: ${merged_paths[*]:-<none>}. Stopping — remaining repos were not touched." >&2
+      return 2
+    fi
+    if [ "$rc" -ne 0 ]; then
       local hint=""
       if [ "$path" = "." ]; then
-        hint=" If the conflicts are on submodule paths (gitlinks), resolve each with \`git add <submodule-path>\` to record that submodule's current HEAD — its own merge happens when you re-run this command, and the resulting pointer update is committed later like any other."
+        hint=" Submodule pointers whose submodule HEAD contains both sides were already set to that HEAD. For a gitlink still in conflict, the submodule's HEAD lacks one side's commit: merge that commit into the submodule's branch, then record it with \`git update-index --cacheinfo 160000,<sha>,<submodule-path>\` (not \`git add\` before the submodule merge, which would record a pointer without the base branch's submodule changes)."
+      else
+        hint=" The superproject was not merged yet: once this repo is resolved and committed, re-run this command — it skips repos already up to date and merges the superproject last."
       fi
       echo "BLOCKED: $path — merge of origin/$base_branch into $branch hit a conflict. The repo is left mid-merge: run \`git -C $path status\` to see conflicts, then \`git -C $path commit\` to finish, or \`git -C $path merge --abort\` to cancel.$hint Already merged before this: ${merged_paths[*]:-<none>}. Stopping — remaining repos were not touched." >&2
       return 2
@@ -525,7 +713,7 @@ cmd_pr() {
   super_branch="$(sm_branch ".")"
 
   while IFS= read -r path; do
-    [ -d "$path" ] || { echo "BLOCKED: $path is not checked out." >&2; blocked=1; continue; }
+    sm_present "$path" || { echo "BLOCKED: $(missing_msg "$path")" >&2; blocked=1; continue; }
     branch="$(sm_branch "$path")"
     if [ -z "$branch" ]; then
       echo "BLOCKED: $path is in detached HEAD." >&2
@@ -592,7 +780,7 @@ cmd_pr() {
     local line
     while IFS= read -r line; do
       [ -n "$line" ] && subjects+=("$line")
-    done < <(git -C "$path" log --reverse --format='%s' "origin/$base_branch..$branch")
+    done < <(git -C "$path" log --no-merges --reverse --format='%s' "origin/$base_branch..$branch")
     if [ "${#subjects[@]}" -eq 0 ]; then
       skip_notes+=("$path: no commits ahead of origin/$base_branch, nothing to PR")
       continue

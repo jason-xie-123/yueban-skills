@@ -32,7 +32,7 @@ allowed-tools: Bash
 
 1. **submodule 的分支永远是唯一真相来源，父仓库记录的 SHA 只是一个滞后的快照。** 更新 submodule 时按分支 `fetch` + 快进（fast-forward），绝不按 SHA 签出。
 2. **遇到任何异常都停下来问用户，绝不自动"修好"。** 包括：submodule 已经处于 detached HEAD、有未提交的改动、本地分支与远程分支出现分叉（既有本地独有提交又落后远程）、submodule 与父仓库不在同名分支上。这些都是需要人来决定怎么合并/变基的场景，脚本不会替用户做这个决定。
-3. **push 之前，先把每个 submodule 自己的提交推到它自己的远程分支，再推父仓库。** 顺序反过来就会出现父仓库记录了一个远程还没有的 commit。
+3. **push 之前，先把每个 submodule 自己的提交推到它自己的远程分支，再推父仓库。** 顺序反过来就会出现父仓库记录了一个远程还没有的 commit。光有顺序还不够：父仓库要推的提交里记录的指针，必须是推完之后 submodule 远程上确实存在的提交（submodule 里 amend/reset 之后，父仓库可能还记着已经不在任何分支上的旧提交），`push` 推送前逐个核对。
 4. **一次同步操作对所有 submodule 是"全部可以就全部做，有一个卡住就全部不做"**，不会出现部分 submodule 已经变了、另一些还没变的中间状态。这一条对 `pull`/`push`/`pr` 严格成立（它们的"能不能做"在动手前就能查清楚，查完再统一动手）；对 `merge-base` 只在预检阶段成立——合并冲突只有真的执行合并才能发现，所以 `merge-base` 遇到冲突时会停在那个仓库、如实报告"这之前的仓库已经合完了、这个冲突了、后面的没碰"，而不是假装整体原子。
 5. **父仓库和每个 submodule 必须签出同名分支。** 父仓库在 `develop` 上，submodule 就都在 `develop` 上；父仓库在功能分支 `<x>` 上，submodule 就都在 `<x>` 上（`yueban-git-feature-branch-flow` 的 `start` 就是这样统一切的）。只核对"每个仓库跟自己的 origin 是否同步"不够：分支名不一致时，每个仓库各自看都是干净、同步的，但父仓库记录的指针和 submodule 实际提交所在的分支已经对不上了。`status` 会在末尾给出 `BRANCH CHECK: OK`、`BRANCH MISMATCH`，或者父仓库处于 detached HEAD 时的 `BRANCH CHECK: superproject is in detached HEAD ...`（无法比较），`pull`/`push`/`merge-base`/`pr` 在分支名不一致时一律 `BLOCKED`，不会替用户决定该切哪一边。
 6. **`pr` 开 PR 前必须让用户看到标题/描述再确认**：标题/描述从 commit history 自动生成，但创建 PR 是对外可见、别人能看到的操作，跟 push 一样不能因为检查通过就自动执行——先用 `--dry-run` 出计划，用户确认后再真正创建。
@@ -53,6 +53,10 @@ scripts/sync.sh pr <base-branch> --dry-run           # 只打印每个仓库的 
 scripts/sync.sh pr <base-branch> --draft             # 创建为 draft PR
 ```
 
+改了 `sync.sh` 后跑 `scripts/selftest.sh`：在临时目录里建带两个 submodule 的父仓库和本地 bare 远程，验证 `push` 拦截远程不存在的指针、`merge-base` 先合 submodule 并把合并后的提交记进父仓库；最后调用 `scripts/selftest-scenarios.sh` 跑一组场景（没初始化的 submodule、分支第一次推送、upstream 指向别的分支、远程已删除的分支、`merge-base` 的指针规则与中途重跑、用假 `gh` 跑 `pr`、`deprecated/` 排除、带空格的路径、在 submodule 里运行）；全部 `ok` 才算通过，不碰临时目录以外的东西。
+
+所有子命令都要在父仓库里运行：在某个 submodule 目录里运行会直接 BLOCKED 并给出父仓库路径。没初始化的 submodule（空目录）一律 BLOCKED（`status` 里标 MISSING），不会被当成父仓库处理。脚本里的 merge 都带 `-c submodule.recurse=false`。
+
 `pull`/`push`/`status` 三个针对的是"当前签出的分支本身要不要跟它自己的远程同步"，不关心这条分支是不是 base 分支；`merge-base`/`pr` 针对的是"当前分支要不要吸收 base 分支的新提交"或"当前分支要不要开 PR 合回 base"，`<base-branch>` 由用户指定（比如 `develop`），脚本假定父仓库和各 submodule 里这个分支名一致——这是本项目一直以来的约定（父仓库和 submodule 统一走 `develop`/`main`），不是脚本硬编码某个具体分支名。
 
 ### 判断用户想做哪个操作
@@ -72,8 +76,9 @@ scripts/sync.sh pr <base-branch> --draft             # 创建为 draft PR
 
 1. 先运行 `scripts/sync.sh push --dry-run`，看计划里哪些 submodule 有待推送的提交、父仓库是否也需要推送。
 2. 把这个计划 summarize 给用户看（比如"某个 submodule 有 2 个提交要推，其余 up to date，父仓库也要推 1 个提交"），**推送属于会影响远程/对方机器可见的操作，执行前要让用户确认**，不要看到 dry-run 干净就直接自动继续推。
-3. 用户确认后，再运行不带 `--dry-run` 的 `scripts/sync.sh push` 真正执行。
-4. 如果出现 `BLOCKED`，处理方式同 pull：原样反馈给用户，不自作主张强推（脚本本身也不会做 force push——分叉的情况会直接 BLOCKED，需要用户先手动 pull/rebase）。
+3. 用户确认后，再运行不带 `--dry-run` 的 `scripts/sync.sh push` 真正执行。每个仓库都按名字推到 `origin/<当前分支>`，不走分支的 upstream 配置（从 `origin/develop` 建出来的分支 upstream 是 develop，裸 `git push` 会被拒或推到 develop）；分支在远程还不存在时就是第一次推送，计划里会标 `first push`，同样先推各 submodule、最后推父仓库，没有 upstream 的仓库顺带设上。除 `--dry-run` 以外的参数一律报用法错误、什么都不推。
+4. 如果出现 `BLOCKED`，处理方式同 pull：原样反馈给用户，不自作主张强推（脚本本身也不会做 force push——分叉的情况会直接 BLOCKED，需要用户先手动 pull/rebase）。其中一类是父仓库要推的末端提交记录了 submodule 远程上不存在、本次也推不上去的指针（常见于记录指针后又在 submodule 里 amend/reset）：让用户在父仓库里提交 submodule 当前的指针，或者把那个提交在 submodule 里推上去。只有中间提交带这种指针时只打 `NOTE`、不拦（只影响以后签出那个历史提交）。
+5. 计划里的 `NOTE: <path> is at ... but the superproject's HEAD records ...` 表示 submodule 的新提交还没记进父仓库，推完后父仓库仍指向旧提交；这本身是正常状态，转述给用户，由用户决定要不要先提交指针再推。
 
 ### merge-base 流程（把 base 分支的新提交合进当前分支）
 
@@ -81,7 +86,7 @@ scripts/sync.sh pr <base-branch> --draft             # 创建为 draft PR
 
 1. 确认要合并的 base 分支名（用户没说清楚就问一句，比如"develop"），运行 `scripts/sync.sh merge-base <base-branch>`。
 2. 脚本会先对父仓库和每个 submodule 做预检（当前分支非 detached、无未提交改动、`origin/<base-branch>` 能 fetch 到），预检有任何 `BLOCKED` 就整体不动手，原样把 BLOCKED 内容讲给用户、问清楚怎么处理。
-3. 预检通过后逐个仓库执行 `git merge origin/<base-branch>`。如果某个仓库合并冲突，脚本会在**那个仓库**停下并报告 `BLOCKED`，同时说明这之前哪些仓库已经合并成功、后面的仓库完全没碰。**不要**自己用 `git merge --abort`、手动 resolve、或者跳过冲突仓库继续处理其它仓库——把冲突信息原样转达给用户，问清楚想怎么解决冲突（自己 resolve 再 commit，还是 abort 放弃这次合并），处理完再重新跑一遍命令去处理剩下的仓库。父仓库最先合并，它的冲突常常落在 submodule 指针（gitlink）上：这类冲突脚本会额外提示"用 `git add <submodule-path>` 记录该 submodule 当前 HEAD"，同样转达给用户、由用户决定，不要代为执行。
+3. 预检通过后逐个仓库执行 `git merge origin/<base-branch>`。如果某个仓库合并冲突，脚本会在**那个仓库**停下并报告 `BLOCKED`，同时说明这之前哪些仓库已经合并成功、后面的仓库完全没碰。**不要**自己用 `git merge --abort`、手动 resolve、或者跳过冲突仓库继续处理其它仓库——把冲突信息原样转达给用户，问清楚想怎么解决冲突（自己 resolve 再 commit，还是 abort 放弃这次合并），处理完再重新跑一遍命令去处理剩下的仓库。顺序是**先合各 submodule、最后合父仓库**：父仓库的合并要记录 submodule 合并之后的提交。submodule 冲突时父仓库还没动，用户解决并提交后重跑本命令，已经合完的仓库会跳过，接着合父仓库。父仓库合并时，凡是 base 那边改过的 submodule 指针（不论当前分支这边改没改过），只要该 submodule 当前 HEAD 同时包含两边记录的提交，脚本就把指针设成这个 HEAD 再提交合并——否则合并提交里的指针不含 base 那边的 submodule 改动，或者停在 gitlink 冲突上。只有当前分支这边改过的指针保持原样，不会把 submodule 里还没记录的提交顺手塞进合并提交。父仓库是快进时没有合并提交，指针就是 base 记录的值，submodule 合并后的新提交照常算作「指针滞后」，之后按需提交指针。仓库里有没收尾的合并（`MERGE_HEAD`）时预检直接 BLOCKED，不会替用户提交别人开的合并。仍然冲突的 gitlink 说明 submodule 的 HEAD 缺了某一边的提交，脚本会提示先把那个提交合进 submodule 的分支，再用 `git update-index --cacheinfo 160000,<sha>,<path>` 记录；同样转达给用户、由用户决定，不要代为执行。
 4. 全部成功后脚本只会在本地完成合并，**不会自动 push**——提醒用户接下来想同步给远程/另一台机器就跑 `scripts/sync.sh push`，想直接开 PR 就跑 `scripts/sync.sh pr <base-branch>`。
 
 ### pr 流程（对父仓库 + 全部 submodule 开 PR）
