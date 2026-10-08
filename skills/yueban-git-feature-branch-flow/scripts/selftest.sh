@@ -69,6 +69,18 @@ git worktree add -q -b unrelated "../wt three" develop   # another worktree hold
 out="$("${FLOW}" sync feat2 2>&1)"; rc=$?
 check "sync works when other worktrees hold other branches" eval '[ "${rc}" -eq 0 ] && on . feat2 && on sub feat2'
 
+echo "flow.sh with a change-id containing a slash"
+git worktree remove "../wt three"; git branch -q -D unrelated
+git checkout -q develop; git -C sub checkout -q develop
+out="$("${FLOW}" start wt/feat3 develop 2>&1)"; rc=$?
+check "start accepts a change-id with a slash" eval '[ "${rc}" -eq 0 ] && on . wt/feat3 && on sub wt/feat3'
+check "start records the base for that change-id" eval '[ "$(git config --get flow-base.wt/feat3.base)" = develop ] && [ "$(git -C sub config --get flow-base.wt/feat3.base)" = develop ]'
+out="$("${FLOW}" finish wt/feat3 2>&1)"
+check "finish uses the recorded base, not the origin/HEAD fallback" eval '! contains "no recorded base"'
+out="$("${FLOW}" finish wt/feat3 --cleanup 2>&1)"; rc=$?
+check "cleanup works while the submodule's own checkout is on the branch" eval '! contains "another worktree"'
+check "cleanup removes the branch and its recorded base" eval '[ "${rc}" -eq 0 ] && ! has_branch . wt/feat3 && [ -z "$(git config --get flow-base.wt/feat3.base)" ]'
+
 echo "snippets used by yueban-git-commit and yueban-spec-*"
 git worktree add -q --detach "../wt detached" HEAD
 check "branch check passes on a branch" eval 'git symbolic-ref -q --short HEAD >/dev/null'
@@ -82,6 +94,11 @@ git reset -q
 mkdir "${TMP}/plain" && cd "${TMP}/plain" && git init -q && echo y > f
 eval "${EXCLUDE_SUBMODULES}" 2>"${TMP}/err"
 check "excluding staging works without .gitmodules, silently" eval '[ -n "$(git diff --cached --name-only)" ] && [ ! -s "${TMP}/err" ]'
+
+echo
+echo "scenarios (selftest-scenarios.sh)"
+scenarios_out="$(cd / && bash "$(dirname "${FLOW}")/selftest-scenarios.sh" "${FLOW}" 2>&1)" || fail=1
+printf '%s\n' "${scenarios_out}" | grep -v -e '^ALL PASSED$' -e '^SOME CASES FAILED$' -e '^passed='
 
 [ "${fail}" -eq 0 ] && echo "ALL PASSED" || echo "SOME CASES FAILED"
 exit "${fail}"

@@ -26,11 +26,12 @@ allowed-tools: Bash, Skill, AskUserQuestion
 ## 核心原则
 
 1. **base 分支可选，由用户在 `start` 时决定**，不写死具体分支名——列出父仓库本地分支，让用户挑，这个选择随后记在每个仓库的 git config 里，`sync`/`finish` 不需要用户重复输入。
-2. **所有涉及的仓库统一动作**：`start` 时要么全部切分支成功，要么一个失败全部不做；`sync` 同理，全有或全无。
+2. **所有涉及的仓库统一动作**：`start`/`sync`/`--cleanup` 先对所有仓库做完预检（分支、未提交改动、分叉、worktree 占用、没初始化的 submodule 等），有一处不满足就一个仓库都不动。预检全过后才逐个仓库执行；执行中途某条 git 命令意外失败时，会停在那里并列出已经做完的仓库，不会回滚，按提示处理后重跑即可。
 3. **commit 的实际操作委托给 `yueban-git-commit` skill**，本 skill 只负责编排顺序（`pending` 命令报告谁该先提交），不重新实现 Conventional Commits 生成逻辑或 submodule 脏检测——那些 `yueban-git-commit` 已经做了。
 4. **合并收尾必须人工执行**：本地合并还是走 PR、要不要 code review，这些决定权在用户；本 skill 只做前置检查（是否已推送、是否已合并）和报告，不自动执行合并。
 5. **任何异常都停下来问用户，绝不自动"修好"**：detached HEAD、未提交改动、本地远程分叉，一律 BLOCKED 报给用户，不自作主张 rebase/合并/强推。
-6. **一个分支同一时间只能签出在一个 git worktree 里**：`sync` 要切过去的分支、`--cleanup` 要删的分支或要切回的 base 分支正签出在本仓库的另一个 worktree 里时，脚本 BLOCKED 并给出那个 worktree 的路径——到那个 worktree 里接着做，或先把它切到别的分支。项目有自己的 worktree 创建脚本（给 submodule 也建 worktree、分配端口等）时，新开 worktree 用那个脚本，不要手敲 `git worktree add`。
+6. **一个分支同一时间只能签出在一个 git worktree 里**：`sync` 要切过去的分支、`--cleanup` 要删的分支或要切回的 base 分支正签出在本仓库的另一个 worktree 里时，脚本 BLOCKED 并给出那个 worktree 的路径——到那个 worktree 里接着做，或先把它切到别的分支。项目有自己的 worktree 创建脚本（给 submodule 也建 worktree、分配端口等）时，新开 worktree 用那个脚本，不要手敲 `git worktree add`；那种脚本通常已经在父仓库和各 submodule 里建好同名分支，这时不需要 `start`，直接在那个 worktree 里开发，`pending`/`sync`/`finish` 照常可用。
+7. **在父仓库根目录运行**：在某个 submodule 目录里运行时脚本直接 BLOCKED 并给出父仓库路径（否则只会处理那一个 submodule）。没初始化的 submodule（空目录）一律 BLOCKED，不会被当成父仓库处理。所有切分支、快进都带 `-c submodule.recurse=false`，用户开了 `submodule.recurse` 也不会把 submodule 切成 detached HEAD。
 
 ## 怎么用
 
@@ -47,16 +48,16 @@ scripts/flow.sh finish <change-id> --base <branch>   # base 记录缺失时手�
 scripts/flow.sh finish <change-id> --cleanup    # 确认已合并后，删除各处的 <change-id> 分支
 ```
 
-改了 `flow.sh` 后跑 `scripts/selftest.sh`：在临时目录里建一个带 submodule 的父仓库和本地 bare 远程，验证 `start`/`sync`/`finish --cleanup`（重点是分支签出在另一个 worktree 时的 BLOCKED），以及 `yueban-git-commit`、`yueban-spec-*` 用到的 detached HEAD 检查和排除 submodule 指针的暂存命令；全部 `ok` 才算通过，不碰临时目录以外的东西。
+改了 `flow.sh` 后跑 `scripts/selftest.sh`：在临时目录里建一个带 submodule 的父仓库和本地 bare 远程，验证 `start`/`sync`/`finish --cleanup`（重点是分支签出在另一个 worktree 时的 BLOCKED，以及 submodule 自己的 checkout 不被误认成另一个 worktree），带 `/` 的 `<change-id>` 能记住 base，以及 `yueban-git-commit`、`yueban-spec-*` 用到的 detached HEAD 检查和排除 submodule 指针的暂存命令；最后调用 `scripts/selftest-scenarios.sh` 跑一组场景（项目 worktree 脚本式的父仓库 + submodule worktree、另一台机器只在 origin 上有分支、cleanup 不删 origin 上没合并的提交、cleanup 中途不半删、`submodule.recurse=true`、没初始化的 submodule、在 submodule 里运行、带空格的 submodule 路径、正在 rebase 的 worktree 占着分支）；全部 `ok` 才算通过，不碰临时目录以外的东西。
 
-分支名固定用 `<change-id>`——如果项目用 openspec 之类的方式管理变更，建议直接复用对应 change 的目录名（如 `openspec/changes/<change-id>/`），保证父仓库和各 submodule 靠名字配对，同时也方便追溯这条分支对应哪个 change；没有这类约定就用能清楚标识这个 spec/功能的短名字。
+分支名固定用 `<change-id>`——如果项目用 openspec 之类的方式管理变更，建议直接复用对应 change 的目录名（如 `openspec/changes/<change-id>/`），保证父仓库和各 submodule 靠名字配对，同时也方便追溯这条分支对应哪个 change；没有这类约定就用能清楚标识这个 spec/功能的短名字。项目对功能分支名有自己的约定（比如要求 `wt/`、`feature/` 之类的前缀，好让别的流程认出来、不把它当成普通分支处理）时，按约定把前缀写进 `<change-id>`（如 `wt/<change-id>`）——`<change-id>` 可以带 `/`，base 分支照样记得住。
 
 ### 1. 开工（start）
 
 1. 跑 `scripts/flow.sh branches`，拿到父仓库当前有哪些本地分支。
 2. 用 AskUserQuestion 让用户选 base 分支——如果项目里已有一条明显的共享主分支（可从 `git symbolic-ref refs/remotes/origin/HEAD` 或各仓库当前分支推断），把它作为推荐默认选项排第一，除非用户在这轮请求里已经明确说了要基于哪个分支（比如"基于 xxx 开一个新分支"），那就不用再问。
 3. 跑 `scripts/flow.sh start <change-id> <base-branch>`。
-4. 如果输出 `BLOCKED: ...`（退出码 2）：**不要**自己用别的 git 命令去绕过或"修复"——比如某个仓库当前不在 base 分支上、或者已经存在同名分支。把每条 BLOCKED 原样讲给用户，问清楚想怎么处理，处理完再重新跑。
+4. 如果输出 `BLOCKED: ...`（退出码 2）：**不要**自己用别的 git 命令去绕过或"修复"——比如某个仓库当前不在 base 分支上、或者已经存在同名分支。`start` 中途停下后重跑时，要用和第一次相同的 base：已经在 `<change-id>` 上的仓库记录的 base 和这次给的不同，会直接 BLOCKED，避免剩下的仓库从另一个 base 切出来。把每条 BLOCKED 原样讲给用户，问清楚想怎么处理，处理完再重新跑。
 5. 成功后简要汇报"`<change-id>` 已经在这几个仓库切好了"，不用整段贴脚本输出。
 
 ### 2. 开发中提交（pending + 委托 yueban-git-commit）
@@ -78,20 +79,20 @@ scripts/flow.sh finish <change-id> --cleanup    # 确认已合并后，删除各
 
 ### 4. 收尾（finish）
 
-1. 先跑 `scripts/flow.sh finish <change-id>`（不加 `--cleanup`），拿到一份合并就绪报告：每个仓库有没有实际改动（空分支 vs 有 commits）、是否已推送、是否已经合并进本地的 base 分支。
+1. 先跑 `scripts/flow.sh finish <change-id>`（不加 `--cleanup`），拿到一份合并就绪报告：每个仓库有没有实际改动、是否已推送、是否已经合并进本地 base 或 `origin/<base>`；`origin/<change-id>` 上有 base 里没有的提交（通常是另一台机器推的）时会标 WARNING，先 `sync` 再合并。
 2. 如果某个仓库的报告里出现"no recorded base"，说明这个仓库的 base 分支信息没记录下来（比如 `start` 是在另一台机器跑的，这台机器的 git config 里没有），脚本会退回用该仓库 `origin/HEAD` 指向的分支并提示；如果 `origin/HEAD` 也没设置，脚本会直接 BLOCKED。实际 base 与推断不一致，或被 BLOCKED 时，加 `--base <branch>` 重新跑。base 分支在某个仓库本地不存在（比如名字写错）时同样 BLOCKED，不会当成"空分支"处理。
 3. 把报告转述给用户，按这个顺序建议操作（**这几步都是用户手动做，本 skill 不执行**）：
    - 对每个有实际改动的 submodule：把 `<change-id>` 合并/PR 回它自己的 base 分支，推送。
    - 回父仓库：`git add <submodule>` 记录新指针 → 提交（这一步同样可以用 `yueban-git-commit`）→ 把父仓库的 `<change-id>` 合并/PR 回它自己的 base 分支，推送。
    - 走 PR 的话，可以直接在 `<change-id>` 上用 `yueban-git-safe-sync` 的 `pr <base-branch>` 一次性开好。走本地合并的话，建议先把父仓库和各 submodule **一起**切回 base 分支，再逐个 `git merge <change-id>`，最后用 `yueban-git-safe-sync` 的 `push` 按"submodule 先、父仓库后"推送——那个 skill 要求父仓库和各 submodule 在同名分支上，只切了一部分仓库时它会 `BLOCKED`。
    - 空分支（没有实际改动的仓库）要不要合并/删除，由用户自己决定，不用主张。
-4. 用户确认上面的合并都做完、推送完之后，如果想清理分支，跑 `scripts/flow.sh finish <change-id> --cleanup`——它会先检查每个仓库的 `<change-id>` 是否真的已经成为本地 base 分支的祖先（即已合并），且 base 分支本身没有领先 origin（避免删掉唯一的远程备份），任何一处没满足就整体 BLOCKED、不删任何分支。**执行清理（删分支）前必须让用户确认**，不要看到报告干净就自动往下跑 `--cleanup`。
+4. 用户确认上面的合并都做完、推送完之后，如果想清理分支，跑 `scripts/flow.sh finish <change-id> --cleanup`——它会先检查每个仓库的 `<change-id>` 是否已经合并进本地 base 或 `origin/<base>`、`origin/<change-id>` 上的提交是否也都已合并、base 分支本身没有领先 origin（避免删掉唯一的远程备份），任何一处没满足就整体 BLOCKED、不删任何分支。通过后它会删除本地的 `<change-id>`，**也会删除远程的 `origin/<change-id>`**（删远程时带 lease：检查之后有人又推过就不删，并提示）。**执行清理前必须让用户确认，并明确告诉用户远程分支也会被删**，不要看到报告干净就自动往下跑 `--cleanup`。
 
 ## 安全原则（贯穿全部子命令）
 
 1. 任何异常（dirty 工作区、分支缺失、本地远程分叉、base 分支未记录、分支签出在另一个 worktree）一律 BLOCKED、原样报给用户，不自作主张修复。
 2. 涉及 push、合并、删分支这类会影响远程/其他机器可见状态的操作，执行前必须让用户确认，不能因为检查通过就自动继续。
-3. 父仓库 + 各当前维护 submodule 的状态变更是"全有或全无"，不留部分完成的中间态。
+3. 父仓库 + 各当前维护 submodule 的状态变更先整体预检、全过才动手；执行中途意外失败时停下并列出已完成的仓库（见核心原则第 2 条）。
 
 ## 不在这个 skill 范围内的事
 

@@ -17,21 +17,56 @@
 # Exit codes:
 #   0 = clean / completed
 #   1 = usage error
-#   2 = at least one repo is blocked; nothing was changed anywhere (all-or-nothing).
+#   2 = at least one repo is blocked. Preflight problems change nothing anywhere;
+#       a git command failing midway stops there and lists the repos already done.
 
 set -uo pipefail
 
-REPO_ROOT="$(git rev-parse --show-toplevel)"
+REPO_ROOT="$(git rev-parse --show-toplevel)" || exit 1
 cd "$REPO_ROOT" || exit 1
+
+# Run inside a submodule, every command would treat that one submodule as the
+# whole project. A repo that has its own .gitmodules is a superproject even if
+# it is nested in another one.
+SUPER_ROOT="$(git rev-parse --show-superproject-working-tree 2>/dev/null)"
+if [ -n "$SUPER_ROOT" ] && [ ! -f .gitmodules ]; then
+  echo "BLOCKED: this is a submodule ($REPO_ROOT). Run this from its superproject: $SUPER_ROOT" >&2
+  exit 2
+fi
+
+# Every git call that moves HEAD goes through this: with submodule.recurse=true
+# (user or repo config), checkout/merge in the superproject would also check
+# out each submodule at its recorded commit, i.e. detach its HEAD.
+gitnr() {
+  git -c submodule.recurse=false "$@"
+}
 
 # --- helpers -----------------------------------------------------------
 
 list_submodules() {
   # Active submodules only: paths under deprecated/ (frozen/historical
-  # modules) are intentionally out of scope — see SKILL.md.
-  git config -f .gitmodules --get-regexp '\.path$' 2>/dev/null \
-    | awk '{print $2}' \
-    | grep -v '^deprecated/'
+  # modules) are intentionally out of scope — see SKILL.md. -z output is
+  # "<key>\n<value>\0", so paths with spaces survive.
+  local entry path
+  git config -z -f .gitmodules --get-regexp '\.path$' 2>/dev/null \
+    | while IFS= read -r -d '' entry; do
+        path="${entry#*$'\n'}"
+        case "$path" in deprecated/*) continue ;; esac
+        printf '%s\n' "$path"
+      done
+}
+
+# True if $1 is a repo checked out in its own right. An uninitialised
+# submodule is an empty directory, where `git -C` silently finds the
+# superproject instead and every check would describe the wrong repo.
+repo_present() {
+  [ "$1" = "." ] && return 0
+  [ -e "$1/.git" ] || return 1
+  [ "$(git -C "$1" rev-parse --show-toplevel 2>/dev/null)" = "$(cd "$1" && pwd -P)" ]
+}
+
+missing_msg() {
+  echo "$1 is not checked out (an uninitialised submodule) — initialise it first (e.g. git submodule update --init $1, or the project's own worktree setup), then switch it to the right branch."
 }
 
 list_repos() {
@@ -66,17 +101,37 @@ repo_is_dirty_ignoring_submodules() {
   [ -n "$(git -C "$1" status --porcelain --ignore-submodules=all 2>/dev/null)" ]
 }
 
-# Prints the path of another worktree of $1's repository that has branch $2
-# checked out (git refuses to check out or delete such a branch here), or
-# nothing.
+# Prints the path of another worktree of $1's repository that holds branch $2
+# (git refuses to check out or delete such a branch here), or nothing. A
+# worktree in the middle of a rebase of $2 shows as detached but still holds
+# it. A submodule's own checkout is listed by `git worktree list` under its git
+# dir (e.g. .git/modules/<name>), not its working tree: that path counts as
+# "here", and when it is another checkout, its working tree is printed instead.
 repo_branch_worktree() {
-  local here w
+  local here gitdir line w wp wgd hn
   here="$(cd "$1" && pwd -P)"
-  git -C "$1" worktree list --porcelain \
-    | awk -v ref="branch refs/heads/$2" '/^worktree /{w=substr($0,10)} $0==ref{print w}' \
-    | while IFS= read -r w; do
-        [ "$(cd "$w" 2>/dev/null && pwd -P)" = "$here" ] || { echo "$w"; break; }
-      done
+  gitdir="$(cd "$(git -C "$1" rev-parse --absolute-git-dir)" && pwd -P)"
+  git -C "$1" worktree list --porcelain | while IFS= read -r line; do
+    case "$line" in
+      "worktree "*) w="${line#worktree }"; continue ;;
+      "branch refs/heads/$2") ;;
+      detached)
+        wgd="$(git -C "$w" rev-parse --absolute-git-dir 2>/dev/null)" || continue
+        hn="$(cat "$wgd/rebase-merge/head-name" "$wgd/rebase-apply/head-name" 2>/dev/null | head -n 1)"
+        [ "$hn" = "refs/heads/$2" ] || continue
+        ;;
+      *) continue ;;
+    esac
+    wp="$(cd "$w" 2>/dev/null && pwd -P)"
+    if [ "$wp" = "$here" ] || [ "$wp" = "$gitdir" ]; then
+      continue
+    fi
+    if [ ! -e "$w/.git" ] && [ -f "$w/HEAD" ]; then
+      w="$(git --git-dir="$w" rev-parse --show-toplevel 2>/dev/null || echo "$w")"
+    fi
+    echo "$w"
+    break
+  done
 }
 
 repo_local_branch_exists() {
@@ -97,7 +152,7 @@ repo_fetch_branch() {
 # branch") when origin/<branch> isn't covered by the configured fetch refspec,
 # i.e. exactly the single-branch/shallow clones repo_fetch_branch handles.
 repo_checkout_tracking() {
-  git -C "$1" checkout --no-track -b "$2" "origin/$2" \
+  gitnr -C "$1" checkout --no-track -b "$2" "origin/$2" \
     && git -C "$1" config "branch.$2.remote" origin \
     && git -C "$1" config "branch.$2.merge" "refs/heads/$2"
 }
@@ -124,13 +179,35 @@ repo_is_ancestor() {
 }
 
 # Per (repo, change-id) memory of which branch it was started from, so
-# 'sync'/'finish' don't need the base branch repeated on every call.
+# 'sync'/'finish' don't need the base branch repeated on every call. The
+# change-id is the config subsection ("flow-base.<change-id>.base"), which may
+# hold any branch-name character, including the "/" of prefixed names like
+# "wt/<topic>"; a plain "flow-base.<change-id>" key only allows letters,
+# digits and "-". That older key is still read and removed for branches
+# started before.
 repo_set_base() {
-  git -C "$1" config "flow-base.$2" "$3"
+  git -C "$1" config "flow-base.$2.base" "$3"
+}
+
+# The older key is only consulted for change-ids it could have been written
+# for: otherwise "flow-base.<a.base>" would be change-id "a"'s new key.
+old_key_ok() {
+  case "$1" in
+    [A-Za-z]*) case "$1" in *[!A-Za-z0-9-]*) return 1 ;; esac; return 0 ;;
+    *) return 1 ;;
+  esac
 }
 
 repo_get_base() {
-  git -C "$1" config --get "flow-base.$2" 2>/dev/null || true
+  git -C "$1" config --get "flow-base.$2.base" 2>/dev/null && return 0
+  old_key_ok "$2" && git -C "$1" config --get "flow-base.$2" 2>/dev/null
+  return 0
+}
+
+repo_unset_base() {
+  git -C "$1" config --unset "flow-base.$2.base" 2>/dev/null || true
+  old_key_ok "$2" && { git -C "$1" config --unset "flow-base.$2" 2>/dev/null || true; }
+  return 0
 }
 
 # Best-effort guess of a repo's default branch from origin/HEAD (prints nothing
@@ -172,7 +249,7 @@ cmd_branches() {
 cmd_status() {
   local path branch dirty ab ahead behind
   while IFS= read -r path; do
-    [ -d "$path" ] || { echo "  $path: MISSING (not checked out)"; continue; }
+    repo_present "$path" || { echo "  $path: MISSING (not checked out — uninitialised submodule)"; continue; }
     branch="$(repo_branch "$path")"
     dirty="clean"; repo_is_dirty "$path" && dirty="DIRTY"
     printf '  %s: branch=%s %s' "$path" "${branch:-<DETACHED>}" "$dirty"
@@ -198,8 +275,13 @@ cmd_start() {
   local -a skip_paths=()
   local path branch blocked=0
 
+  if ! git check-ref-format --branch "$change_id" >/dev/null 2>&1; then
+    echo "BLOCKED: '$change_id' is not a valid branch name. Nothing changed." >&2
+    return 2
+  fi
+
   while IFS= read -r path; do
-    [ -d "$path" ] || { echo "BLOCKED: $path is not checked out." >&2; blocked=1; continue; }
+    repo_present "$path" || { echo "BLOCKED: $(missing_msg "$path")" >&2; blocked=1; continue; }
     if repo_is_dirty_ignoring_submodules "$path"; then
       echo "BLOCKED: $path has uncommitted changes. Commit or stash first." >&2
       blocked=1
@@ -207,12 +289,27 @@ cmd_start() {
     fi
     branch="$(repo_branch "$path")"
     if [ "$branch" = "$change_id" ]; then
+      # A re-run (e.g. after a start that stopped midway) must use the same
+      # base, or the remaining repos would branch off a different one.
+      local recorded
+      recorded="$(repo_get_base "$path" "$change_id")"
+      if [ -n "$recorded" ] && [ "$recorded" != "$base_branch" ]; then
+        echo "BLOCKED: $path is already on '$change_id', started from '$recorded', not '$base_branch'. Re-run with '$recorded' as the base, or set this change aside by hand if '$base_branch' is what you meant." >&2
+        blocked=1
+        continue
+      fi
       echo "SKIP: $path is already on '$change_id'."
       skip_paths+=("$path")
       continue
     fi
     if repo_local_branch_exists "$path" "$change_id"; then
       echo "BLOCKED: $path already has a local branch '$change_id' (but you're on '$branch'). This change may already be started elsewhere — use 'sync' instead of 'start', or delete the stale branch by hand if this was a mistake." >&2
+      blocked=1
+      continue
+    fi
+    repo_fetch_branch "$path" "$change_id"
+    if repo_remote_branch_exists "$path" "$change_id"; then
+      echo "BLOCKED: $path already has origin/$change_id — this change was started on another machine. Use 'sync $change_id' to pick it up instead of starting it again." >&2
       blocked=1
       continue
     fi
@@ -256,12 +353,13 @@ cmd_start() {
     if [ "${act_ff[$i]}" -gt 0 ]; then
       echo "-- $path: fast-forwarding $base_branch to origin/$base_branch --"
       run_step "$path: fast-forward of $base_branch failed unexpectedly. Stopping — already done: ${done_paths[*]:-<none>}. Resolve $path by hand, then re-run for the remaining repos." \
-        git -C "$path" merge --ff-only "origin/$base_branch" || return 2
+        gitnr -C "$path" merge --ff-only "origin/$base_branch" || return 2
     fi
     echo "-- $path: creating '$change_id' from $base_branch --"
     run_step "$path: 'git checkout -b $change_id' failed unexpectedly (e.g. an invalid branch name?). Stopping — already done: ${done_paths[*]:-<none>}. Resolve $path by hand, then re-run for the remaining repos." \
-      git -C "$path" checkout -b "$change_id" || return 2
-    repo_set_base "$path" "$change_id" "$base_branch"
+      gitnr -C "$path" checkout -b "$change_id" || return 2
+    run_step "$path: recording base '$base_branch' for '$change_id' in git config failed. '$change_id' was created; pass --base $base_branch to 'finish' for this repo. Stopping — already done: ${done_paths[*]:-<none>}." \
+      repo_set_base "$path" "$change_id" "$base_branch" || return 2
     done_paths+=("$path")
   done
 
@@ -283,7 +381,7 @@ cmd_pending() {
   echo "== $change_id: pending changes (commit submodules first, superproject last) =="
   while IFS= read -r path; do
     [ "$path" = "." ] && continue
-    [ -d "$path" ] || continue
+    repo_present "$path" || continue
     branch="$(repo_branch "$path")"
     if [ "$branch" != "$change_id" ]; then
       echo "  $path: not on '$change_id' (currently '${branch:-<DETACHED>}') — skipped"
@@ -325,7 +423,7 @@ cmd_sync() {
   local path branch blocked=0
 
   while IFS= read -r path; do
-    [ -d "$path" ] || { echo "BLOCKED: $path is not checked out." >&2; blocked=1; continue; }
+    repo_present "$path" || { echo "BLOCKED: $(missing_msg "$path")" >&2; blocked=1; continue; }
     branch="$(repo_branch "$path")"
     if [ -z "$branch" ]; then
       echo "BLOCKED: $path is in detached HEAD — resolve manually (checkout the intended branch) before syncing." >&2
@@ -399,28 +497,40 @@ cmd_sync() {
   fi
 
   local i=0
+  local -a done_paths=()
   while IFS= read -r path; do
     local mode="${do_switch[$i]:-}" ff="${do_ff[$i]:-0}"
     case "$mode" in
       checkout)
         echo "-- $path: checkout existing local '$change_id' --"
-        run_step "$path: 'git checkout $change_id' failed unexpectedly. Stopping — resolve $path by hand, then re-run." \
-          git -C "$path" checkout "$change_id" || return 2
+        run_step "$path: 'git checkout $change_id' failed unexpectedly. Stopping — already done: ${done_paths[*]:-<none>}. Resolve $path by hand, then re-run." \
+          gitnr -C "$path" checkout "$change_id" || return 2
         ;;
       track)
         echo "-- $path: checkout '$change_id' tracking origin/$change_id --"
-        run_step "$path: creating '$change_id' from origin/$change_id (with origin/$change_id as upstream) failed unexpectedly. Stopping — resolve $path by hand, then re-run." \
+        run_step "$path: creating '$change_id' from origin/$change_id (with origin/$change_id as upstream) failed unexpectedly. Stopping — already done: ${done_paths[*]:-<none>}. Resolve $path by hand, then re-run." \
           repo_checkout_tracking "$path" "$change_id" || return 2
         ff=0
         ;;
     esac
     if [ "$ff" -eq 1 ]; then
       echo "-- $path: fast-forwarding $change_id to origin/$change_id --"
-      run_step "$path: fast-forward of $change_id failed unexpectedly. Stopping — resolve $path by hand, then re-run." \
-        git -C "$path" merge --ff-only "origin/$change_id" || return 2
+      run_step "$path: fast-forward of $change_id failed unexpectedly. Stopping — already done: ${done_paths[*]:-<none>}. Resolve $path by hand, then re-run." \
+        gitnr -C "$path" merge --ff-only "origin/$change_id" || return 2
     fi
+    done_paths+=("$path")
     i=$((i + 1))
   done < <(list_repos)
+
+  local off="" now
+  while IFS= read -r path; do
+    now="$(repo_branch "$path")"
+    [ "$now" = "$change_id" ] || off="$off $path(${now:-detached})"
+  done < <(list_repos)
+  if [ -n "$off" ]; then
+    echo "FAILED: sync finished but these repos are not on '$change_id':$off — check them by hand." >&2
+    return 2
+  fi
 
   echo
   echo "Done."
@@ -460,17 +570,30 @@ cmd_finish() {
   }
 
   if [ "$cleanup" = "1" ]; then
-    local -a can_delete=()
+    local -a can_delete=() remote_sha=()
     local blocked=0
     while IFS= read -r path; do
-      [ -d "$path" ] || { echo "BLOCKED: $path is not checked out." >&2; blocked=1; continue; }
+      repo_present "$path" || { echo "BLOCKED: $(missing_msg "$path")" >&2; blocked=1; continue; }
       if ! repo_local_branch_exists "$path" "$change_id"; then
         echo "SKIP: $path has no local '$change_id' branch, nothing to clean up."
-        can_delete+=("0")
+        can_delete+=("0"); remote_sha+=("")
         continue
       fi
-      local base; base="$(resolve_base "$path")" || { blocked=1; can_delete+=("0"); continue; }
+      local base; base="$(resolve_base "$path")" || { blocked=1; can_delete+=("0"); remote_sha+=(""); continue; }
       repo_fetch_branch "$path" "$base"
+      # origin/<change-id> may hold commits pushed from another machine that
+      # never reached this one: deleting it would lose them.
+      local rsha=""
+      git -C "$path" fetch --quiet --prune origin "+refs/heads/$change_id:refs/remotes/origin/$change_id" 2>/dev/null || true
+      if repo_remote_branch_exists "$path" "$change_id"; then
+        rsha="$(git -C "$path" rev-parse "refs/remotes/origin/$change_id")"
+        if ! repo_is_ancestor "$path" "$rsha" "$base" \
+          && ! { repo_remote_branch_exists "$path" "$base" && repo_is_ancestor "$path" "$rsha" "origin/$base"; }; then
+          echo "BLOCKED: $path's origin/$change_id has commits not merged into $base (or origin/$base) — probably pushed from another machine. Sync and merge them first; cleanup would delete them from origin." >&2
+          blocked=1
+          continue
+        fi
+      fi
       local ab
       if ab="$(repo_ahead_behind_local "$path" "$base")"; then
         local ahead; ahead="$(echo "$ab" | awk '{print $1}')"
@@ -513,7 +636,7 @@ cmd_finish() {
           continue
         fi
       fi
-      can_delete+=("1")
+      can_delete+=("1"); remote_sha+=("$rsha")
     done < <(list_repos)
 
     if [ "$blocked" -ne 0 ]; then
@@ -530,15 +653,22 @@ cmd_finish() {
           local base; base="$(resolve_base "$path")" || return 2
           echo "-- $path: currently on '$change_id', switching to '$base' first --"
           run_step "$path: 'git checkout $base' failed unexpectedly. Stopping — already deleted: ${deleted_paths[*]:-<none>}. Resolve $path by hand, then re-run --cleanup for the rest." \
-            git -C "$path" checkout "$base" || return 2
+            gitnr -C "$path" checkout "$base" || return 2
         fi
         echo "-- $path: deleting local branch '$change_id' --"
-        run_step "$path: 'git branch -d $change_id' failed unexpectedly. Stopping — already deleted: ${deleted_paths[*]:-<none>}. Resolve $path by hand, then re-run --cleanup for the rest." \
-          git -C "$path" branch -d "$change_id" || return 2
-        git -C "$path" config --unset "flow-base.$change_id" 2>/dev/null || true
-        if repo_remote_branch_exists "$path" "$change_id"; then
+        # -D, not -d: the checks above already proved it is merged into $base
+        # or origin/$base; -d judges by the branch's upstream or HEAD instead
+        # and would refuse halfway through.
+        run_step "$path: 'git branch -D $change_id' failed unexpectedly. Stopping — already deleted: ${deleted_paths[*]:-<none>}. Resolve $path by hand, then re-run --cleanup for the rest." \
+          git -C "$path" branch -D "$change_id" || return 2
+        repo_unset_base "$path" "$change_id"
+        local rsha="${remote_sha[$i]:-}"
+        if [ -n "$rsha" ]; then
           echo "-- $path: deleting origin/$change_id --"
-          git -C "$path" push origin --delete "$change_id" 2>/dev/null || echo "   (already gone on origin)"
+          # The lease makes the delete fail if someone pushed after the check.
+          if ! git -C "$path" push --quiet --force-with-lease="refs/heads/$change_id:$rsha" origin ":refs/heads/$change_id"; then
+            echo "   NOT deleted: origin/$change_id changed since the check (or the push failed) — look at it before deleting it by hand."
+          fi
         fi
         deleted_paths+=("$path")
       fi
@@ -554,7 +684,7 @@ cmd_finish() {
   echo
   local unresolved=0
   while IFS= read -r path; do
-    [ -d "$path" ] || { echo "  $path: MISSING"; continue; }
+    repo_present "$path" || { echo "  $path: MISSING (not checked out — uninitialised submodule)"; continue; }
     if ! repo_local_branch_exists "$path" "$change_id"; then
       echo "  $path: no local '$change_id' branch (run 'sync' first if it exists on origin, or 'start' if not)"
       continue
@@ -563,6 +693,7 @@ cmd_finish() {
     local base_note=""
     [ -z "$(repo_get_base "$path" "$change_id")" ] && [ -z "$base_override" ] && base_note=" (no recorded base — using origin/HEAD's '$base', pass --base to override)"
     local commits; commits="$(repo_commits_ahead_of_base "$path" "$change_id" "$base")"
+    repo_fetch_branch "$path" "$base"
     repo_fetch_branch "$path" "$change_id"
     local pushed="no origin/$change_id yet"
     local ab
@@ -577,11 +708,22 @@ cmd_finish() {
       fi
     fi
     local merged="not merged into local $base"
-    repo_is_ancestor "$path" "$change_id" "$base" && merged="already merged into local $base"
+    if repo_is_ancestor "$path" "$change_id" "$base"; then
+      merged="already merged into local $base"
+    elif repo_remote_branch_exists "$path" "$base" && repo_is_ancestor "$path" "$change_id" "origin/$base"; then
+      merged="already merged into origin/$base (local $base not updated yet)"
+    fi
+    local remote_extra=""
+    if repo_remote_branch_exists "$path" "$change_id"; then
+      local -a not_in=("$base")
+      repo_remote_branch_exists "$path" "$base" && not_in+=("origin/$base")
+      local n; n="$(git -C "$path" rev-list --count "origin/$change_id" --not "${not_in[@]}" 2>/dev/null || echo 0)"
+      [ "$n" -gt 0 ] && remote_extra=" — WARNING: origin/$change_id has $n commit(s) not in $base; sync before merging or cleaning up"
+    fi
     if [ "$commits" = "0" ]; then
-      echo "  $path: EMPTY branch (no commits beyond $base)$base_note — merge is a no-op, safe to skip or clean up directly"
+      echo "  $path: no commits beyond local $base (never committed, or already merged)$base_note, $pushed$remote_extra"
     else
-      echo "  $path: $commits commit(s) ahead of $base$base_note, $pushed, $merged"
+      echo "  $path: $commits commit(s) ahead of $base$base_note, $pushed, $merged$remote_extra"
     fi
   done < <(list_submodules; echo ".")
   echo
