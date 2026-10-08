@@ -66,6 +66,19 @@ repo_is_dirty_ignoring_submodules() {
   [ -n "$(git -C "$1" status --porcelain --ignore-submodules=all 2>/dev/null)" ]
 }
 
+# Prints the path of another worktree of $1's repository that has branch $2
+# checked out (git refuses to check out or delete such a branch here), or
+# nothing.
+repo_branch_worktree() {
+  local here w
+  here="$(cd "$1" && pwd -P)"
+  git -C "$1" worktree list --porcelain \
+    | awk -v ref="branch refs/heads/$2" '/^worktree /{w=substr($0,10)} $0==ref{print w}' \
+    | while IFS= read -r w; do
+        [ "$(cd "$w" 2>/dev/null && pwd -P)" = "$here" ] || { echo "$w"; break; }
+      done
+}
+
 repo_local_branch_exists() {
   git -C "$1" show-ref --verify --quiet "refs/heads/$2"
 }
@@ -351,7 +364,13 @@ cmd_sync() {
       continue
     fi
     if repo_local_branch_exists "$path" "$change_id"; then
-      local ab ahead behind
+      local ab ahead behind elsewhere
+      elsewhere="$(repo_branch_worktree "$path" "$change_id")"
+      if [ -n "$elsewhere" ]; then
+        echo "BLOCKED: $path can't switch to '$change_id': it is checked out in another worktree ($elsewhere). Work there, or switch that worktree to another branch first." >&2
+        blocked=1
+        continue
+      fi
       if ab="$(repo_ahead_behind_local "$path" "$change_id")"; then
         ahead="$(echo "$ab" | awk '{print $1}')"
         behind="$(echo "$ab" | awk '{print $2}')"
@@ -477,6 +496,22 @@ cmd_finish() {
         echo "BLOCKED: $path is currently on '$change_id' with uncommitted changes — cleanup needs to switch it back to '$base' before deleting the branch. Commit or stash first." >&2
         blocked=1
         continue
+      fi
+      local elsewhere
+      elsewhere="$(repo_branch_worktree "$path" "$change_id")"
+      if [ -n "$elsewhere" ]; then
+        echo "BLOCKED: $path's '$change_id' is checked out in another worktree ($elsewhere) — git won't delete it. Remove that worktree or switch it to another branch first." >&2
+        blocked=1
+        continue
+      fi
+      if [ "$(repo_branch "$path")" = "$change_id" ]; then
+        local base_wt
+        base_wt="$(repo_branch_worktree "$path" "$base")"
+        if [ -n "$base_wt" ]; then
+          echo "BLOCKED: $path is on '$change_id' and cleanup needs to switch it to '$base', but '$base' is checked out in another worktree ($base_wt). Run cleanup from that worktree instead, or switch it to another branch first." >&2
+          blocked=1
+          continue
+        fi
       fi
       can_delete+=("1")
     done < <(list_repos)

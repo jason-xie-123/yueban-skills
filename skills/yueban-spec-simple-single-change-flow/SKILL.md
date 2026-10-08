@@ -24,7 +24,8 @@ change 名必须明确。用户没说是哪一个，先问，不要自己去 `RO
 
 - `command -v openspec`；缺了就说明并停下。
 - `openspec-apply-change` skill 已安装（通常在 `.claude/skills/openspec-apply-change/`）；缺了提示用户跑 `openspec update --force`。
-- `git status --short` 为空。工作区不干净时先问用户怎么处理——最后一步会 `git add -A`，无关改动会被混进这次提交。
+- `git symbolic-ref -q --short HEAD` 有输出，即当前在某个分支上。detached HEAD（新建的 git worktree、`git submodule update` 之后的 submodule 常见）时停下来问用户切到或新建哪个分支，不要在 detached HEAD 上提交。
+- `git status --short` 为空。工作区不干净时先问用户怎么处理——无关改动容易被混进最后的提交。
 - `openspec status --change "<name>" --json` 确认 `proposal.md`/`design.md`/`tasks.md`/`specs/**/*.md` 齐全。
 - 如果 `openspec/config.yaml` 存在，读一下里面的 `rules`，后面 review spec 和实施都以它为准。
 
@@ -61,7 +62,7 @@ git status --short
 
 确认 change 目录已移到 `openspec/changes/archive/YYYY-MM-DD-<name>`，且 `openspec/specs/` 下对应的 spec 真的被创建/更新了，不能只看退出码。只有纯工具/文档类、本来就没有 `specs/` 的 change 才加 `--skip-specs`。
 
-然后提交代码，**只 commit，不 push**，也不要问用户是否推送。
+然后提交代码，**只 commit，不 push**，也不要问用户是否推送。暂存时按 `git status --short` 列出这次 change 产生的路径逐个 `git add`，不用 `git add -A` / `git add .`。项目用 submodule 时，submodule 里的改动在 submodule 自己的分支上提交；父仓库里的 submodule 指针变化先不暂存（指针要等 submodule 的提交推送后再记，见 `yueban-git-commit`「Handling submodules」），在收尾汇报里列出来。
 
 ## 收尾
 
@@ -73,5 +74,6 @@ git status --short
 
 - apply 报 `all_done` 不等于任务全勾了，用 `grep` 交叉核实。
 - 代码 review 只看 `git diff` 会漏掉未跟踪的新文件。
+- `git add -A` 会把 submodule 指针也暂存进去，而 submodule 的提交还没推送，父仓库就记了一个远程不存在的提交。
 - `openspec archive` 退出码 0 不代表 spec 同步了，用 `git status` 看一眼（新建的 spec 文件未跟踪，`git diff` 看不到）。
 - change 中途被用户放弃时，不要走 `openspec archive`：把目录移到 `openspec/changes/archive/$(date +%Y-%m-%d)-abandoned-<name>`，已经产生的代码改动先问用户要不要 revert，再提交。

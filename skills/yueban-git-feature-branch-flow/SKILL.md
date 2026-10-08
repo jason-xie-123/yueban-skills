@@ -30,6 +30,7 @@ allowed-tools: Bash, Skill, AskUserQuestion
 3. **commit 的实际操作委托给 `yueban-git-commit` skill**，本 skill 只负责编排顺序（`pending` 命令报告谁该先提交），不重新实现 Conventional Commits 生成逻辑或 submodule 脏检测——那些 `yueban-git-commit` 已经做了。
 4. **合并收尾必须人工执行**：本地合并还是走 PR、要不要 code review，这些决定权在用户；本 skill 只做前置检查（是否已推送、是否已合并）和报告，不自动执行合并。
 5. **任何异常都停下来问用户，绝不自动"修好"**：detached HEAD、未提交改动、本地远程分叉，一律 BLOCKED 报给用户，不自作主张 rebase/合并/强推。
+6. **一个分支同一时间只能签出在一个 git worktree 里**：`sync` 要切过去的分支、`--cleanup` 要删的分支或要切回的 base 分支正签出在本仓库的另一个 worktree 里时，脚本 BLOCKED 并给出那个 worktree 的路径——到那个 worktree 里接着做，或先把它切到别的分支。项目有自己的 worktree 创建脚本（给 submodule 也建 worktree、分配端口等）时，新开 worktree 用那个脚本，不要手敲 `git worktree add`。
 
 ## 怎么用
 
@@ -45,6 +46,8 @@ scripts/flow.sh finish <change-id>              # 只读，合并就绪报告
 scripts/flow.sh finish <change-id> --base <branch>   # base 记录缺失时手动指定
 scripts/flow.sh finish <change-id> --cleanup    # 确认已合并后，删除各处的 <change-id> 分支
 ```
+
+改了 `flow.sh` 后跑 `scripts/selftest.sh`：在临时目录里建一个带 submodule 的父仓库和本地 bare 远程，验证 `start`/`sync`/`finish --cleanup`（重点是分支签出在另一个 worktree 时的 BLOCKED），以及 `yueban-git-commit`、`yueban-spec-*` 用到的 detached HEAD 检查和排除 submodule 指针的暂存命令；全部 `ok` 才算通过，不碰临时目录以外的东西。
 
 分支名固定用 `<change-id>`——如果项目用 openspec 之类的方式管理变更，建议直接复用对应 change 的目录名（如 `openspec/changes/<change-id>/`），保证父仓库和各 submodule 靠名字配对，同时也方便追溯这条分支对应哪个 change；没有这类约定就用能清楚标识这个 spec/功能的短名字。
 
@@ -86,7 +89,7 @@ scripts/flow.sh finish <change-id> --cleanup    # 确认已合并后，删除各
 
 ## 安全原则（贯穿全部子命令）
 
-1. 任何异常（dirty 工作区、分支缺失、本地远程分叉、base 分支未记录）一律 BLOCKED、原样报给用户，不自作主张修复。
+1. 任何异常（dirty 工作区、分支缺失、本地远程分叉、base 分支未记录、分支签出在另一个 worktree）一律 BLOCKED、原样报给用户，不自作主张修复。
 2. 涉及 push、合并、删分支这类会影响远程/其他机器可见状态的操作，执行前必须让用户确认，不能因为检查通过就自动继续。
 3. 父仓库 + 各当前维护 submodule 的状态变更是"全有或全无"，不留部分完成的中间态。
 

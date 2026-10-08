@@ -55,6 +55,7 @@ allowed-tools: Bash, Read, Edit, Grep, Glob, Skill, Workflow, AskUserQuestion
 - 确认 `openspec` 命令本身在 PATH 上（`command -v openspec`）——第四步的 `openspec validate`/`openspec archive`、以及委托给 `openspec-apply-change` 的实施步骤都依赖这个二进制，缺了它会在流程跑到一半才报错，不如提前发现，向用户说明并停下。
 - 确认第二步要用到的 `openspec-apply-change` skill 已安装：`test -d .claude/skills/openspec-apply-change || echo "Missing .claude/skills/openspec-apply-change — re-run: openspec update --force"`。这一步必须在第一步的多轮校验循环（Workflow，高 token 消耗）之前做，否则会等整轮校验跑完、进入第二步才发现装不了，白白浪费掉第一步的开销。
 - 读 `openspec/config.yaml`：里面的 `rules`（`proposal`/`design`/`specs`/`tasks`）是本仓库对 OpenSpec artifacts 的强制约定（如语言、验证方式、前端改动是否要求端到端测试等），第一步的四个评审角度和修复 agent、第二步的 `openspec-apply-change` 实施都要以它为准绳，而不是只凭经验判断。
+- `git symbolic-ref -q --short HEAD` 有输出，即当前在某个分支上。detached HEAD（新建的 git worktree、`git submodule update` 之后的 submodule 常见）时停下来问用户切到或新建哪个分支，不要在 detached HEAD 上开工和提交。
 - `git status --short` 确认工作区干净，`git fetch origin <base-branch>` 确认本地与远端同步，避免在过期代码上开工（`<base-branch>` 是当前分支所在项目的默认/基线分支，以该项目实际使用的名字为准，不要写死；不确定就先 `git symbolic-ref refs/remotes/origin/HEAD` 或直接问用户）。
 - 如果发现远端有本次会话不知情的新提交（尤其是大规模重构、或删除了 `openspec/` 下的目录），先向用户说明情况，不要在不确定的地基上继续；用户明确说"不用管，直接拉最新代码"就照做，不要反复追问。
 - 如果 `openspec/changes/ROADMAP.md` 存在、且要处理的 change 列在「阻塞中」小节里：先向用户说明它的阻塞原因与解除条件，确认条件已经满足再开始；用户确认前不进入第一步。这是本 skill 对待办小节唯一的读取，只读不改——把它移回待办小节由用户或 [`yueban-spec-roadmap-flow`](../yueban-spec-roadmap-flow/SKILL.md) 处理，本 skill 在收尾汇报里提醒即可。
@@ -169,9 +170,11 @@ openspec archive <change-name> -y
 
 **只 commit，不 push**——不管当前检出的是基线分支、feature 分支还是某个隔离 worktree，直接在当前分支上提交即可；什么时候把这些提交推到远端、推到哪个分支、要不要先合并回基线分支，都交给用户自己决定，本 skill 不替用户做这个判断。
 
+暂存时按 `git status --short` 列出这次 change 产生的路径逐个 `git add`，不用 `git add -A` / `git add .`。项目用 submodule 时，submodule 里的改动在 submodule 自己的分支上提交；父仓库里的 submodule 指针变化先不暂存（指针要等 submodule 的提交推送后再记，见 `yueban-git-commit`「Handling submodules」），在汇报里列出来。
+
 ```bash
-git add -A
-git status --short   # 过一遍确认没有意外文件被带进来
+git add <这次 change 产生的路径...>
+git status --short   # 过一遍确认没有意外文件被带进来、也没有漏掉
 git commit -m "$(cat <<'EOF'
 <type>(<scope>): <一句话概括这次改动做了什么>[ [known gaps]——records.knownGaps 非空时加]
 

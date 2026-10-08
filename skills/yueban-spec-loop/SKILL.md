@@ -36,10 +36,15 @@ APPLY → VERIFY →（FAIL 时 FIX 一次）→ ARCHIVE → CHECK_GOAL_DONE，�
   for s in openspec-explore openspec-propose openspec-apply-change; do
     test -d ".claude/skills/$s" || { echo "Missing .claude/skills/$s — re-run: openspec update --force"; exit 1; }
   done
+  git symbolic-ref -q --short HEAD >/dev/null || { echo "Detached HEAD (common in a fresh git worktree). Switch to or create a branch, then re-invoke this skill."; exit 1; }
   ```
 
   如果任一检查失败，明确告诉用户该运行什么命令，然后停止。不要代替用户去执行
   `openspec init`。
+- **项目用 git submodule 时，下文每处 `git add -A` 都排除 submodule 路径**，写成
+  `git add -A -- . $(git config -f .gitmodules --get-regexp '\.path$' 2>/dev/null | awk '{print ":(exclude)" $2}')`：
+  否则会把 submodule 指针暂存并推送出去，而 submodule 里的提交还没推送，父仓库就指向一个远程不存在的提交。
+  submodule 里的改动在 submodule 自己的分支上提交推送，然后再单独提交父仓库的指针。
 - **没有 git worktree 隔离**——直接在当前工作目录中运行。无人值守运行进行期间，不要手动
   编辑同一个项目。
 - **同一项目同一时间只能有一个活跃的 goal。** 本技能不支持并发运行两个 goal。

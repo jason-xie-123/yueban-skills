@@ -28,13 +28,13 @@ allowed-tools: Bash, Read, Edit, Write, Grep, Glob, Skill, AskUserQuestion
 
 ## 流程
 
-1. `command -v openspec`；`git status --short` 为空（不干净先问用户）。
+1. `command -v openspec`；`git symbolic-ref -q --short HEAD` 有输出（detached HEAD 时先问用户切到哪个分支）；`git status --short` 为空（不干净先问用户）。
 2. 读 `ROADMAP.md`，**轻量核实**一下顺序描述是否还符合代码现状：
    - 某条其实已在代码里**全部**实现：直接从待办小节删掉，单独提交，继续。
    - 只**部分**实现：停下来问用户怎么处理。
    - 「阻塞中」的条目看一眼解除条件是否已满足，满足的**先问用户**要不要移回原位置，同意后移回并单独提交。
 3. 先按顺序处理「有依赖关系」，再串行处理「无强依赖」。每个 change 通过 `Skill` 调用 `yueban-spec-simple-single-change-flow`，**显式传入 change 名**。一次只做一个，不并行。
-4. 每个 change 提交后，从对应待办小节删掉它的条目，**单独提交**——不提交的话，下一个 change 的"工作区干净"检查会被挡住。
+4. 每个 change 提交后，从对应待办小节删掉它的条目，**单独提交**（只 `git add` 这份 `ROADMAP.md`）——不提交的话，下一个 change 的"工作区干净"检查会被挡住。子流程留下没暂存的 submodule 指针变化不算不干净，汇总到收尾里报给用户。
 5. 向用户简短汇报一句（刚完成的 change、commit hash、有没有已知缺口、还剩几个），**然后直接继续下一个**，不等确认。
 6. 两个待办小节都清空就结束。
 

@@ -62,6 +62,14 @@ BREAKING CHANGE: `extends` field behavior has changed
 
 ### 1. Analyze the diff
 
+First make sure HEAD is on a branch. A commit on a detached HEAD (common in a fresh git worktree or a submodule after `git submodule update`) belongs to no branch and is easy to lose, so stop and ask the user which branch to switch to or create instead of committing:
+
+```bash
+git symbolic-ref -q --short HEAD || echo "Detached HEAD — switch to or create a branch first"
+```
+
+Then look at the changes:
+
 ```bash
 # If files are already staged, check the staged diff
 git diff --staged
