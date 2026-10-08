@@ -12,7 +12,7 @@ allowed-tools: Bash, Read, Edit, Write, Grep, Glob, Skill, Agent, SendMessage, T
 
 [`yueban-spec-simple-roadmap-flow`](../yueban-spec-simple-roadmap-flow/SKILL.md) 的并行版：按 `openspec/changes/ROADMAP.md` 把待办 change 分给多个 subagent，每个 subagent 在自己的 git worktree 里跑 [`yueban-spec-simple-worktree-single-change-flow`](../yueban-spec-simple-worktree-single-change-flow/SKILL.md)，做完各自 fast-forward 落回基线分支。只有当用户用自己的话明确点名本 skill，或明确要求"并行 / 用 worktree"把 ROADMAP 剩下的 change 跑完时才调用；用户只说"把 ROADMAP 跑完"时用串行的 `yueban-spec-simple-roadmap-flow`，分不清就先问。它会同时改多处代码、反复提交并移动基线分支（不 push）。
 
-本 skill 只负责**排班**（按依赖关系决定哪些能同时做）、**派活**和**维护待办清单**；每个 change 在 worktree 里怎么做、怎么落回，全在 `yueban-spec-simple-worktree-single-change-flow` 里。
+本 skill 只负责**排班**（按依赖关系决定哪些能同时做）、**派活**和**维护待办清单**；每个 change 在 worktree 里怎么做、怎么落回（包括项目的 `.yueban/config` 钩子和随 change 一起落回的 submodule），全在 `yueban-spec-simple-worktree-single-change-flow` 里。
 
 ## ROADMAP.md 结构
 
@@ -38,7 +38,7 @@ allowed-tools: Bash, Read, Edit, Write, Grep, Glob, Skill, Agent, SendMessage, T
 - **第 3 步就要停下来让用户修 ROADMAP 的情况**：`依赖：` 里的名字既不在三个小节里、`landed` 也不是 `yes`（拼错或漏写）；依赖了列表里更靠后的条目、依赖自己、形成环；依赖了「无强依赖」里的条目（让用户把它挪进「有依赖关系」并排在前面）。有问题的部分修好之前一个都不派——包括看起来无关的条目，免得 ROADMAP 改完之后排班要推翻。
 - **例子**：A → B → C 之后 D、E 都只依赖 C，F 依赖 D 和 E——写成 `D — 依赖：C`、`E — 依赖：C`、`F — 依赖：D, E`。C 落回后 D、E 同时开两个 worktree；两个都落回后才开始 F（F 的 worktree 从已经包含 D、E 的基线切出）。
 - **同时在跑的上限默认 3 个**，用户指定了就用用户的。BLOCKED 等答复的不占名额。可开工的多于上限时，「有依赖关系」里的优先（按列表顺序，它们通常挡着后面的 change），再按列表顺序派「无强依赖」的。
-- **避开必然的冲突**：派一个 change 前，拿它和**正在跑的**以及这一轮要一起派的 change 比较：`design.md`/`tasks.md` 里明显要改同一批文件，或者 `specs/` 下有同名的 capability 目录（archive 时会改同一份 `openspec/specs/<capability>/spec.md`），就先不派它，等对方落回。对方 BLOCKED 或被跳过时，这个推迟随之解除。
+- **避开必然的冲突**：改同一个 submodule 的 change 并行时，后落回的要在 submodule 和父仓库里各 merge 一次（NEEDS_MERGE），冲突多的话排队更省事。派一个 change 前，拿它和**正在跑的**以及这一轮要一起派的 change 比较：`design.md`/`tasks.md` 里明显要改同一批文件，或者 `specs/` 下有同名的 capability 目录（archive 时会改同一份 `openspec/specs/<capability>/spec.md`），就先不派它，等对方落回。对方 BLOCKED 或被跳过时，这个推迟随之解除。
 - 读 tasks 时就能看出外部前置明显不具备（缺账号、缺第三方服务等）的，不派，按 BLOCKED 处理（问用户，见第 6 步）。
 - 「阻塞中」的不派。
 
@@ -48,7 +48,7 @@ allowed-tools: Bash, Read, Edit, Write, Grep, Glob, Skill, Agent, SendMessage, T
 
 **派活状态文件**：`<git common dir>/yueban-roadmap-state.md`（`git rev-parse --git-common-dir` 得到目录；在 `.git` 里，不会被提交）。每次派活、收到结果、用户做决定时更新它：每个 change 一行，记 change 名、状态（`running` / `blocked` / `skipped` / `done`）、agent 名或 ID、用户的答复。主会话的上下文被压缩或重开后，以它加上 ROADMAP 和 `<WT> status` 为准重建状态。全部结束后删掉它。
 
-1. 前置检查：`command -v openspec`；`git symbolic-ref -q --short HEAD` 有输出——这就是**基线分支**；`git status --short` 为空（不干净先问用户）；`.worktrees/` 被 git-ignore（`git check-ignore -q .worktrees/x`，没有就问用户是否加进 `.gitignore` 并单独提交）。
+1. 前置检查：`command -v openspec`；`git symbolic-ref -q --short HEAD` 有输出——这就是**基线分支**；`git status --short` 为空（不干净先问用户；主工作区的 submodule 有没记录进父仓库的提交也算不干净，会挡住改了它的 change 落回）；`.worktrees/` 被 git-ignore（`git check-ignore -q .worktrees/x`，没有就问用户是否加进 `.gitignore` 并单独提交）。
 2. 看上次中断留下的东西：
    - 读派活状态文件（有的话）。记着 `running` 的：问用户那些 subagent 是否还在跑（还在跑就不要重复派，等它们的结果）；记着 `skipped` 的：保持跳过；`blocked` 的：把记下的问题和答复带上，按第 6 步处理。
    - 跑 `<WT> status`。`STATE=integrated`（已经落回、只差清理）的：`<WT> cleanup <change>`，再按第 6 步的方式持锁把条目从 ROADMAP 删掉。其它 `spec/*`（包括 `rebasing`）：列给用户，对应的 change 派活时会从断点续上，不要删。
@@ -72,7 +72,7 @@ allowed-tools: Bash, Read, Edit, Write, Grep, Glob, Skill, Agent, SendMessage, T
    - **`LANDED=no` 且没有约定格式的回复，或中途出错**：按 BLOCKED 处理；`<WT> status` 看它的 worktree 停在哪，报给用户，不要自己进去接着改。
 7. **没有在跑的 subagent、没有在等用户答复的 BLOCKED，并且按排班规则已经没有可派的条目**，就结束。被跳过、BLOCKED 的条目，以及因为前置没满足而没派的条目，都留在待办里、在收尾里列出。
 
-主工作区在整个过程中只用来由主会话持锁改 `ROADMAP.md`；其它文件不要动，也提醒用户别动——基线分支会被各个 subagent 不断 fast-forward。用户想调整 ROADMAP，请他告诉主会话，由主会话持锁修改。**每次补派之前都从 `HEAD` 重新读一遍 ROADMAP** 并重新检查 `依赖：`；正在跑的 change 被用户挪进「阻塞中」或删掉了，问用户要不要用 `TaskStop` 停掉它。
+主工作区在整个过程中只用来由主会话持锁改 `ROADMAP.md`；其它文件（包括各 submodule 里的）不要动，也提醒用户别动——基线分支（以及 submodule 里和它同名的分支）会被各个 subagent 不断 fast-forward。用户想调整 ROADMAP，请他告诉主会话，由主会话持锁修改。**每次补派之前都从 `HEAD` 重新读一遍 ROADMAP** 并重新检查 `依赖：`；正在跑的 change 被用户挪进「阻塞中」或删掉了，问用户要不要用 `TaskStop` 停掉它。
 
 ## 中途要停下来的情况
 
