@@ -458,6 +458,28 @@ mkdir -p .yueban && printf '[worktree]\n\tsetup = true\n' > .yueban/config && ad
 run "${WT}" start rho
 check "start refuses when .yueban/config exists in the main worktree but is not committed" eval '[ "${rc}" -eq 2 ] && contains "not committed" && [ -z "$(git branch --list spec/rho)" ]'
 rm -rf .yueban
+add_change sigma; "${WT}" start sigma >/dev/null 2>&1
+mkdir -p .yueban && printf '[worktree]\n\tsetup = true\n' > .yueban/config && git add .yueban && git commit -q -m "add config"
+run "${WT}" start sigma
+check "a change started before .yueban/config was committed can still be resumed (with a warning)" eval '[ "${rc}" -eq 0 ] && contains "predates .yueban/config"'
+git rm -q -r .yueban && git commit -q -m "drop config"
+
+echo "review fixes: round 3"
+cd "${H}" || exit 1
+"${WT}" start r7 >/dev/null 2>&1; R7="${H}/.worktrees/r7"
+printf 'SECRET\n' > "${H}/ünï.env" && printf 'ünï.env\n' >> "${G}/info/exclude"
+( cd "${R7}" && printf 'new\n' > ünï.env && git add -f ünï.env && git commit -q -m env ) && finish_change "${R7}" r7 r7.txt
+touch "${R7}/b/build.out"
+run in_dir "${R7}" "${WT}" integrate
+check "integrate refuses to overwrite an ignored file with a non-ASCII name" eval '[ "${rc}" -eq 2 ] && contains "would overwrite" && [ "$(cat "${H}/ünï.env")" = SECRET ]'
+rm -f "${H}/ünï.env"
+run in_dir "${R7}" "${WT}" integrate
+check "untracked build output in a submodule does not block integrate" eval '[ "${rc}" -eq 0 ] && [ -f "${H}/r7.txt" ]'
+cp .yueban/config "${TMP}/config.bak" && printf '\tprotect = *\n' >> .yueban/config && touch "${H}/develop"
+add_change r8
+run "${WT}" start r8
+check "worktree.protect values are not glob-expanded" eval '[ "${rc}" -eq 0 ]'
+cp "${TMP}/config.bak" .yueban/config && rm -f "${H}/develop"
 
 echo "unreadable config"
 R="${TMP}/bad config"; mkdir -p "${R}" && cd "${R}" || exit 1

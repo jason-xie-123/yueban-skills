@@ -121,8 +121,9 @@ hook_cmd() {
 
 # protected_base <branch>: whether the main worktree's .yueban/config lists <branch> in worktree.protect.
 protected_base() {
-  local b
-  for b in $(hook_cmd "${MAIN_WT}" protect 2>/dev/null); do [ "${b}" = "$1" ] && return 0; done
+  local b list=()
+  read -r -a list <<< "$(hook_cmd "${MAIN_WT}" protect 2>/dev/null)"
+  for b in ${list[@]+"${list[@]}"}; do [ "${b}" = "$1" ] && return 0; done
   return 1
 }
 
@@ -157,7 +158,8 @@ branch_submodules() {
 }
 
 # dirty_beyond_removed_submodules <worktree>: its status entries, minus submodules whose checkout is gone (a
-# teardown hook that failed halfway may already have removed some); empty when nothing else is dirty.
+# teardown hook that failed halfway may already have removed some; only used when a teardown hook exists, since
+# without one a submodule's git dir may live inside the worktree); empty when nothing else is dirty.
 dirty_beyond_removed_submodules() {
   local entry p subs
   subs="$(submodule_paths "$1")"
@@ -294,8 +296,11 @@ new_token() { printf '%s-%s-%s' "$(date +%s)" "$$" "${RANDOM}${RANDOM}"; }
 prepare_worktree() {
   local cmd
   if [ ! -f "$1/.yueban/config" ] && [ -f "${MAIN_WT}/.yueban/config" ]; then
-    echo "${MAIN_WT}/.yueban/config is not committed on $3, so the worktree has no hooks; commit it on $3 first." >&2
-    return 1
+    if ! git cat-file -e "refs/heads/$3:.yueban/config" 2>/dev/null; then
+      echo "${MAIN_WT}/.yueban/config is not committed on $3, so the worktree would get no hooks; commit it on $3 first." >&2
+      return 1
+    fi
+    echo "WARNING: $2 predates .yueban/config on $3, so no hooks ran. Catch up with $3 (rebase, or merge when submodules are involved) and run start again." >&2
   fi
   cmd="$(hook_cmd "$1" setup)" || return 1
   if [ -n "${cmd}" ]; then
@@ -352,7 +357,7 @@ cmd_start() {
       existing="${path}"; recreated=1
     fi
     prepare_worktree "${existing}" "${branch}" "${recorded}" "${recreated}" \
-      || blocked "the setup hook failed in ${existing} (see above); the worktree and ${branch} are kept as they are. Fix the cause and run start again."
+      || blocked "preparing ${existing} failed (see above); the worktree and ${branch} are kept as they are. Fix the cause and run start again."
     echo "WORKTREE=${existing}"; echo "BRANCH=${branch}"; echo "BASE=${recorded}"
     echo "STATE=$(change_state "${branch}" "${existing}")"
     echo "AHEAD=$(git rev-list --count "refs/heads/${recorded}..refs/heads/${branch}")"
@@ -392,7 +397,7 @@ cmd_start() {
     drop_submodule_branches "${branch}"
     git branch -q -D "${branch}" 2>/dev/null
     git config --unset "branch.${branch}.yuebanSpecBase" 2>/dev/null
-    blocked "the setup hook failed in the new worktree (see above); the worktree and ${branch} were removed again."
+    blocked "preparing the new worktree failed (see above); the worktree and ${branch} were removed again."
   fi
   echo "WORKTREE=${path}"; echo "BRANCH=${branch}"; echo "BASE=${base}"; echo "STATE=new"; echo "AHEAD=0"
   print_submodules "${path}" "${branch}"
@@ -433,9 +438,9 @@ prepare_landing() {
     [ -z "$(git -C "${base_wt}" ls-files -u)" ] \
       || blocked "the base worktree ${base_wt} has unresolved merge conflicts; resolve them first."
     # git silently overwrites ignored files (e.g. a local .env) when a fast-forward adds a file at that path.
-    while IFS= read -r f; do
+    while IFS= read -r -d '' f; do
       { [ -e "${base_wt}/${f}" ] || [ -L "${base_wt}/${f}" ]; } && clash="${clash} ${f}"
-    done < <(git diff --name-only --no-renames --diff-filter=A "${old}" "${head}")
+    done < <(git diff -z --name-only --no-renames --diff-filter=A "${old}" "${head}")
     [ -z "${clash}" ] || blocked "landing ${branch} would overwrite local (ignored/untracked) files in ${base_wt}:${clash}. Move them away or ask the user."
   fi
   printf '%s' "${base_wt}"
@@ -481,9 +486,14 @@ cmd_integrate() {
   while IFS= read -r p; do [ -n "${p}" ] && on_branch+=("${p}"); done < <(branch_submodules "${top}" "${branch}")
   for p in ${on_branch[@]+"${on_branch[@]}"}; do
     merging_in "${top}/${p}" && blocked "a merge is still in progress in submodule ${p}; resolve the conflicts and 'git commit' there (or 'git merge --abort') first."
-    is_dirty "${top}/${p}" && blocked "submodule ${p} has uncommitted changes; commit them on ${branch} there first."
-    recorded="$(git rev-parse -q --verify "HEAD:${p}")"
+    is_dirty_tracked "${top}/${p}" && blocked "submodule ${p} has uncommitted changes; commit them on ${branch} there first."
+    recorded="$(git rev-parse -q --verify "HEAD:${p}")" \
+      || blocked "${branch} records no commit for submodule ${p} (removed?); ask the user how to proceed."
+    git -C "${top}/${p}" cat-file -e "${recorded}^{commit}" 2>/dev/null \
+      || blocked "submodule ${p} does not have the commit ${branch} records for it (${recorded:0:12}); fetch it there first."
     if [ "$(git -C "${top}/${p}" rev-parse HEAD)" != "${recorded}" ]; then
+      git diff --cached --quiet -- "${p}" \
+        || blocked "a pointer for submodule ${p} is staged but not committed; commit or unstage it first."
       # Behind (another change's submodule commits came in with a rebase or merge of the parent): catch up. Never
       # record the older commit, that would undo the other change in the parent.
       if git -C "${top}/${p}" merge-base --is-ancestor HEAD "${recorded}" 2>/dev/null; then
@@ -509,7 +519,7 @@ cmd_integrate() {
   # The submodule pointers this branch changes (plumbing with --ignore-submodules=none and -z, so neither
   # submodule.<name>.ignore, diff.ignoreSubmodules nor quoted paths can hide one): each must be a submodule on the
   # branch that shares its repository with the main worktree's submodule, so its commits can land on the base there.
-  local subs=() sub_repo
+  local subs=() sub_repo nested
   mb="$(git merge-base "refs/heads/${base}" HEAD)" || blocked "${branch} and ${base} have no common history."
   while IFS= read -r -d '' meta && IFS= read -r -d '' p; do
     mode_a="$(printf '%s' "${meta}" | awk '{print substr($1,2)}')"
@@ -526,7 +536,9 @@ cmd_integrate() {
     git -C "${top}/${p}" rev-parse -q --verify "refs/heads/${base}^{commit}" >/dev/null \
       || blocked "submodule ${p} has no branch ${base} to land on; create it there (on the commit ${base} records for ${p}) or ask the user."
     # Nested submodules live in the change worktree's own git dirs and would be lost with it.
-    [ -z "$(git -C "${top}/${p}" diff-tree -r --raw --ignore-submodules=none "$(git rev-parse "${mb}:${p}")" "$(git rev-parse "HEAD:${p}")" | awk '$1 ~ /160000/ || $2 ~ /160000/')" ] \
+    nested="$(git -C "${top}/${p}" diff-tree -r --raw --ignore-submodules=none "$(git rev-parse "${mb}:${p}")" "$(git rev-parse "HEAD:${p}")")" \
+      || blocked "cannot compare submodule ${p} with what ${base} records for it (missing commits? fetch them there first)."
+    [ -z "$(printf '%s\n' "${nested}" | awk '$1 ~ /160000/ || $2 ~ /160000/')" ] \
       || blocked "${branch} changes a nested submodule inside ${p}; this flow cannot land that. Ask the user how to proceed."
     subs+=("${p}")
   done < <(git diff-tree -r -z --raw --no-renames --ignore-submodules=none "${mb}" HEAD)
@@ -577,12 +589,17 @@ cmd_integrate() {
   base_wt="$(prepare_landing "${branch}" "${base}" "${old}" "${head}")" || exit $?
   for i in ${subs[@]+"${!subs[@]}"}; do
     w="$(cd "${top}/${subs[i]}" && set_ctx && prepare_landing "${branch}" "${base}" "${sub_old[i]}" "${sub_head[i]}")" || exit $?
-    want=""; [ -z "${base_wt}" ] || want="$(physical "${base_wt}/${subs[i]}")"
-    if [ -n "${base_wt}" ] && [ "$(physical "${w:-/nonexistent}")" != "${want}" ]; then
-      blocked "${base_wt} has ${base} checked out, but its submodule ${subs[i]} is not on ${base}${w:+ (${base} is checked out at ${w})}; landing would leave the two out of step. Switch it: git -C '${base_wt}/${subs[i]}' switch ${base} — or ask the user."
+    want=""
+    if [ -n "${base_wt}" ] && [ -e "${base_wt}/${subs[i]}/.git" ]; then
+      [ "$(common_dir_of "${base_wt}/${subs[i]}")" = "$(common_dir_of "${top}/${subs[i]}")" ] \
+        || blocked "${base_wt}/${subs[i]} (in the checkout of ${base}) is a separate repository from this change's ${subs[i]}; landing would leave it behind its parent. Ask the user how to proceed."
+      want="$(physical "${base_wt}/${subs[i]}")"
     fi
-    [ -n "${base_wt}" ] || [ -z "${w}" ] \
-      || blocked "submodule ${subs[i]}'s ${base} is checked out at ${w}, but the parent's ${base} is not checked out; landing would leave that checkout's parent out of step. Switch it to another branch or ask the user."
+    if [ "$(physical "${w:-/nonexistent}")" != "${want}" ]; then
+      [ -z "${want}" ] \
+        || blocked "${base_wt} has ${base} checked out, but its submodule ${subs[i]} is not on ${base}${w:+ (${base} is checked out at ${w})}; landing would leave the two out of step. Switch it: git -C '${base_wt}/${subs[i]}' switch ${base} — or ask the user."
+      blocked "submodule ${subs[i]}'s ${base} is checked out at ${w}, but the parent's ${base} is not checked out with that submodule set up; landing would leave that checkout's parent out of step. Switch it to another branch or ask the user."
+    fi
     sub_wt+=("${w}")
   done
 
@@ -622,7 +639,7 @@ cmd_integrate() {
 cmd_cleanup() {
   [ $# -eq 1 ] || die "Usage: wt.sh cleanup <change>"
   check_change_name "$1"
-  local change="$1" branch="spec/$1" base wt wt_phys here p repo tip sub_branches=() not_landed="" failed=""
+  local change="$1" branch="spec/$1" base wt wt_phys here p repo tip recorded dirt sub_branches=() not_landed="" failed=""
   branch_exists "${branch}" || blocked "branch ${branch} does not exist."
   base="$(base_of "${branch}")"
   [ -n "${base}" ] || blocked "no recorded base for ${branch}."
@@ -636,7 +653,9 @@ cmd_cleanup() {
     [ -n "${p}" ] && [ -e "${MAIN_WT}/${p}/.git" ] || continue
     repo="${MAIN_WT}/${p}"
     tip="$(git -C "${repo}" rev-parse -q --verify "refs/heads/${branch}^{commit}")" || continue
-    if git -C "${repo}" for-each-ref --contains "${tip}" --format='%(refname)' 2>/dev/null | grep -qvxF "refs/heads/${branch}"; then
+    recorded="$(git rev-parse -q --verify "refs/heads/${base}:${p}" 2>/dev/null)"
+    if git -C "${repo}" for-each-ref --contains "${tip}" --format='%(refname)' 2>/dev/null | grep -qvxF "refs/heads/${branch}" \
+       || { [ -n "${recorded}" ] && git -C "${repo}" merge-base --is-ancestor "${tip}" "${recorded}" 2>/dev/null; }; then
       sub_branches+=("${p}")
     else
       not_landed="${not_landed} ${p}"
@@ -649,7 +668,9 @@ cmd_cleanup() {
     wt_phys="$(physical "${wt}")"; here="$(pwd -P)"
     [ -n "${wt_phys}" ] || blocked "cannot access ${wt}."
     case "${here}/" in "${wt_phys}/"*) blocked "you are inside ${wt}; cd to ${MAIN_WT} and run cleanup from there." ;; esac
-    [ -z "$(dirty_beyond_removed_submodules "${wt}")" ] \
+    if [ -n "$(hook_cmd "${wt}" teardown 2>/dev/null)" ]; then dirt="$(dirty_beyond_removed_submodules "${wt}")"
+    else dirt="$(git -C "${wt}" status --porcelain --ignore-submodules=untracked 2>/dev/null)"; fi
+    [ -z "${dirt}" ] \
       || blocked "${wt} has uncommitted or untracked files (or submodules off their recorded commit); check them, then remove them or the worktree yourself."
     run_hook teardown "${wt}" "${branch}" "${base}" \
       || blocked "the teardown hook failed in ${wt} (see above); the worktree and ${branch} are kept. Fix the cause and run cleanup again."
