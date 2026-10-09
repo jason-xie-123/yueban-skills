@@ -98,6 +98,9 @@ git -C A checkout -q --detach
 run A push --dry-run
 check "push: BLOCKED with detached superproject" eval '[ "${rc}" -eq 2 ] && contains "superproject is in detached HEAD"'
 git -C A checkout -q develop; git -C A/sa checkout -q --detach
+run A status
+check "status: a detached submodule fails the BRANCH CHECK" \
+  eval '! contains "BRANCH CHECK: OK" && contains "BRANCH MISMATCH" && contains "sa (detached HEAD)"'
 run A push --dry-run
 check "push: BLOCKED with detached submodule" eval '[ "${rc}" -eq 2 ] && contains "sa is in detached HEAD"'
 
@@ -119,6 +122,8 @@ git clone -q remote-main.git B 2>/dev/null
 (cd B && g submodule update -q --init sa); git -C B/sa checkout -q -B develop origin/develop
 run B status
 check "status reports the uninitialized sb as MISSING, not as on the superproject's branch" contains "sb: MISSING"
+check "status: an uninitialized submodule fails the BRANCH CHECK" \
+  eval '! contains "BRANCH CHECK: OK" && contains "sb (not checked out)"'
 run B pull
 check "pull BLOCKS on the uninitialized sb" eval '[ "${rc}" -eq 2 ] && contains "sb is not checked out"'
 for p in . sa; do git -C "B/$p" checkout -q -b feat && git -C "B/$p" push -q -u origin feat; done

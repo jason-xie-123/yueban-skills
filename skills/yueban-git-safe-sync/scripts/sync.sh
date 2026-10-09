@@ -221,7 +221,11 @@ cmd_status() {
   super_branch="$(sm_branch ".")"
   local -a mismatched=()
   while IFS= read -r path; do
-    sm_present "$path" || { echo "  $path: MISSING (not checked out — uninitialised submodule)"; continue; }
+    if ! sm_present "$path"; then
+      echo "  $path: MISSING (not checked out — uninitialised submodule)"
+      mismatched+=("$path (not checked out)")
+      continue
+    fi
     branch="$(sm_branch "$path")"
     dirty="clean"; sm_is_dirty "$path" && dirty="DIRTY"
     rec="$(sm_recorded_sha "$path")"
@@ -230,6 +234,8 @@ cmd_status() {
     if [ -n "$branch" ] && [ -n "$super_branch" ] && [ "$branch" != "$super_branch" ]; then
       printf ' [BRANCH MISMATCH: superproject=%s]' "$super_branch"
       mismatched+=("$path ($branch)")
+    elif [ -z "$branch" ]; then
+      mismatched+=("$path (detached HEAD)")
     fi
     if [ -n "$branch" ]; then
       if ab="$(sm_ahead_behind "$path" "$branch")"; then

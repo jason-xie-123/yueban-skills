@@ -34,7 +34,7 @@ allowed-tools: Bash
 2. **遇到任何异常都停下来问用户，绝不自动"修好"。** 包括：submodule 已经处于 detached HEAD、有未提交的改动、本地分支与远程分支出现分叉（既有本地独有提交又落后远程）、submodule 与父仓库不在同名分支上。这些都是需要人来决定怎么合并/变基的场景，脚本不会替用户做这个决定。
 3. **push 之前，先把每个 submodule 自己的提交推到它自己的远程分支，再推父仓库。** 顺序反过来就会出现父仓库记录了一个远程还没有的 commit。光有顺序还不够：父仓库要推的提交里记录的指针，必须是推完之后 submodule 远程上确实存在的提交（submodule 里 amend/reset 之后，父仓库可能还记着已经不在任何分支上的旧提交），`push` 推送前逐个核对。
 4. **一次同步操作对所有 submodule 是"全部可以就全部做，有一个卡住就全部不做"**，不会出现部分 submodule 已经变了、另一些还没变的中间状态。这一条对 `pull`/`push`/`pr` 严格成立（它们的"能不能做"在动手前就能查清楚，查完再统一动手）；对 `merge-base` 只在预检阶段成立——合并冲突只有真的执行合并才能发现，所以 `merge-base` 遇到冲突时会停在那个仓库、如实报告"这之前的仓库已经合完了、这个冲突了、后面的没碰"，而不是假装整体原子。
-5. **父仓库和每个 submodule 必须签出同名分支。** 父仓库在 `develop` 上，submodule 就都在 `develop` 上；父仓库在功能分支 `<x>` 上，submodule 就都在 `<x>` 上（`yueban-git-feature-branch-flow` 的 `start` 就是这样统一切的）。只核对"每个仓库跟自己的 origin 是否同步"不够：分支名不一致时，每个仓库各自看都是干净、同步的，但父仓库记录的指针和 submodule 实际提交所在的分支已经对不上了。`status` 会在末尾给出 `BRANCH CHECK: OK`、`BRANCH MISMATCH`，或者父仓库处于 detached HEAD 时的 `BRANCH CHECK: superproject is in detached HEAD ...`（无法比较），`pull`/`push`/`merge-base`/`pr` 在分支名不一致时一律 `BLOCKED`，不会替用户决定该切哪一边。
+5. **父仓库和每个 submodule 必须签出同名分支。** 父仓库在 `develop` 上，submodule 就都在 `develop` 上；父仓库在功能分支 `<x>` 上，submodule 就都在 `<x>` 上（`yueban-git-feature-branch-flow` 的 `start` 就是这样统一切的）。只核对"每个仓库跟自己的 origin 是否同步"不够：分支名不一致时，每个仓库各自看都是干净、同步的，但父仓库记录的指针和 submodule 实际提交所在的分支已经对不上了。`status` 会在末尾给出 `BRANCH CHECK: OK`、`BRANCH MISMATCH`（处于 detached HEAD 或没初始化的 submodule 也列在这里），或者父仓库处于 detached HEAD 时的 `BRANCH CHECK: superproject is in detached HEAD ...`（无法比较），`pull`/`push`/`merge-base`/`pr` 在分支名不一致时一律 `BLOCKED`，不会替用户决定该切哪一边。
 6. **`pr` 开 PR 前必须让用户看到标题/描述再确认**：标题/描述从 commit history 自动生成，但创建 PR 是对外可见、别人能看到的操作，跟 push 一样不能因为检查通过就自动执行——先用 `--dry-run` 出计划，用户确认后再真正创建。
 
 ## 怎么用
@@ -64,7 +64,7 @@ scripts/sync.sh pr <base-branch> --draft             # 创建为 draft PR
 用户调用 `/yueban-git-safe-sync` 时可能直接说明意图（"我要 pull"/"我要 push"/"把 develop 合进来"/"开 PR"），也可能什么都不加。按下面顺序判断：
 
 1. 用户消息里明确提到 pull（拉取/同步最新代码/换了台机器）、push（推送/提交上去/同步给另一台机器）、merge-base（把 base 分支的新提交合进当前分支）或 pr（开 PR 合回 base），就按对应模式走。
-2. 都没提到：先跑 `scripts/sync.sh status`。汇报时**先看最后一行的分支核对**：是 `BRANCH MISMATCH` 就把哪些仓库在哪条分支上讲给用户，问清楚应该统一到哪条分支，不要只说"都已同步"；是父仓库 detached HEAD 就先让用户把父仓库签出到应在的分支；是 `OK` 再往下看——看当前是 ahead（有本地未推送的提交，倾向于 push 场景）还是 behind（远程有新提交，倾向于 pull 场景），据此提出一个判断并跟用户确认，而不是自己悄悄二选一执行有副作用的操作。merge-base/pr 需要一个 base 分支名，用户没提就不要主动推断成这两个操作。
+2. 都没提到：先跑 `scripts/sync.sh status`。汇报时**先看最后一行的分支核对**：是 `BRANCH MISMATCH` 就把哪些仓库在哪条分支上讲给用户，问清楚应该统一到哪条分支，不要只说"都已同步"——其中标 `(detached HEAD)` 的 submodule，先看它的 HEAD 是否在父仓库同名分支上、有没有独有提交，再问用户要不要切回那条分支；标 `(not checked out)` 的，问用户要不要初始化后签出到那条分支；是父仓库 detached HEAD 就先让用户把父仓库签出到应在的分支；是 `OK` 再往下看——看当前是 ahead（有本地未推送的提交，倾向于 push 场景）还是 behind（远程有新提交，倾向于 pull 场景），据此提出一个判断并跟用户确认，而不是自己悄悄二选一执行有副作用的操作。merge-base/pr 需要一个 base 分支名，用户没提就不要主动推断成这两个操作。
 
 ### pull 流程
 
