@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # selftest.sh — regression tests for wt.sh against throwaway repos in a temp dir (paths with spaces, one repo with a
 # submodule): start/resume, integrate as a fast-forward of the base worktree, NEEDS_REBASE after a parallel change
-# landed first, two integrates racing, the integration lock and its tokens, cleanup, and the edge cases found in
-# review (deleted worktree dirs, a base being rebased, a tag named like the base, submodule changes, bad arguments),
+# landed first, two integrates racing, the integration lock, its tokens and its contract with other tools (owner line,
+# taking over a dead holder's lock), cleanup, and the edge cases found in review (deleted worktree dirs, a base being
+# rebased, a tag named like the base, submodule changes, bad arguments),
 # and the .yueban/config hooks with submodules on the change branch: landing submodule commits, NEEDS_MERGE, undoing
 # submodule moves when the parent's fails, hook failures, leftover branches and unsupported submodule changes.
 # Touches nothing outside the temp dir.
@@ -127,6 +128,36 @@ run "${WT}" unlock "${token}"
 check "unlock with the right token releases the lock" eval '[ "${rc}" -eq 0 ] && [ ! -d "$(lockdir)" ]'
 run in_dir "${M}/.worktrees/eps" "${WT}" integrate
 check "integrate works once the lock is released" eval '[ "${rc}" -eq 0 ] && [ -f e.txt ]'
+
+echo "lock contract"
+fake_lock() { # fake_lock <owner line>: the lock as another tool following the contract would hold it
+  mkdir "$(lockdir)" && printf '%s\n' "$1" > "$(lockdir)/owner"
+}
+sh -c 'exit 0' & dead_pid=$!; wait "${dead_pid}"
+run "${WT}" lock
+token="$(printf '%s\n' "${out}" | sed -n 's/^LOCK_TOKEN=//p')"
+check "lock writes the documented owner line (token, then an empty pid)" eval 'head -1 "$(lockdir)/owner" | grep -q "^token=${token} pid= "'
+"${WT}" unlock "${token}" >/dev/null 2>&1
+fake_lock "token=other pid=$$ since=x holder=another tool"
+run "${WT}" lock --wait 0
+check "a lock another tool holds with a live pid is waited for, not taken over" eval '[ "${rc}" -eq 2 ] && contains "still held" && grep -q "^token=other " "$(lockdir)/owner"'
+rm -rf "$(lockdir)"
+fake_lock "token=other pid= since=x holder=another tool (manual)"
+run "${WT}" lock --wait 0
+check "a lock with no pid is never taken over" eval '[ "${rc}" -eq 2 ] && grep -q "^token=other " "$(lockdir)/owner"'
+rm -rf "$(lockdir)"
+fake_lock "token=dead pid=${dead_pid} since=x holder=a tool that died"
+run "${WT}" lock --wait 0
+token="$(printf '%s\n' "${out}" | sed -n 's/^LOCK_TOKEN=//p')"
+check "a lock whose holder process is gone is taken over" eval '[ "${rc}" -eq 0 ] && grep -q "^token=${token} " "$(lockdir)/owner" && [ ! -d "$(lockdir).takeover" ]'
+"${WT}" unlock "${token}" >/dev/null 2>&1
+fake_lock "token=dead pid=${dead_pid} since=x holder=a tool that died"
+mkdir "$(lockdir).takeover" && touch -t 202001010000 "$(lockdir).takeover"
+run "${WT}" lock --wait 0
+token="$(printf '%s\n' "${out}" | sed -n 's/^LOCK_TOKEN=//p')"
+check "a takeover directory left by a waiter that died is cleared, then the lock is taken over" eval '[ "${rc}" -eq 0 ] && [ -n "${token}" ] && [ ! -d "$(lockdir).takeover" ]'
+"${WT}" unlock "${token}" >/dev/null 2>&1
+check "the lock is free after the contract cases" eval '[ ! -d "$(lockdir)" ]'
 
 echo "status"
 run "${WT}" status

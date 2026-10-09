@@ -44,6 +44,16 @@
 # integrate then fast-forwards the submodule's branch named like the base before the parent's base, and undoes
 # those moves if the parent's fails. Such a branch catches up with its base by merging, not rebasing (NEEDS_MERGE).
 #
+# Integration lock (a contract other tools can rely on): the directory <git common dir>/yueban-spec-integrate.lock
+# of the parent repository, taken with an atomic mkdir and released by removing it. Its holder writes an owner file
+# whose first line starts with 'token=<token> pid=<pid> ' (pid left empty by 'lock', whose lock is never taken
+# over); the rest of the line is for people. Any other tool that fast-forwards or commits on a branch integrate may
+# move (the base in the parent, or the branch of the same name in a submodule) must hold this lock, the same way,
+# while it does so; then it and integrate never move that branch at once. A waiter takes over a lock whose pid no
+# longer runs: under <lock>.takeover (a directory taken with mkdir), it removes the lock only while the owner line is
+# still the dead holder's. Taking over repairs nothing a dead holder left half done; integrate refuses a base
+# worktree left out of step.
+#
 # Exit codes:
 #   0 = done (integrate also exits 0 with ALREADY_INTEGRATED when there is nothing left to land)
 #   1 = usage error
@@ -267,9 +277,28 @@ config_set() { # git config can fail on a concurrent config.lock; retry briefly
   git config "$@"
 }
 
-lock_acquire() { # lock_acquire <wait-seconds> <token> <label>
-  local waited=0
+lock_acquire() { # lock_acquire <wait-seconds> <token> <label> [<pid>]
+  local waited=0 owner pid
   while ! mkdir "${LOCK_DIR}" 2>/dev/null; do
+    owner="$(lock_owner)"
+    pid="$(lock_pid "${owner}")"
+    if [ -n "${pid}" ] && ! pid_alive "${pid}"; then
+      # One waiter at a time takes over, and only while the lock still carries the dead holder's line (one taken in
+      # the meantime has another line, or none yet).
+      if mkdir "${LOCK_DIR}.takeover" 2>/dev/null; then
+        [ "$(lock_owner)" = "${owner}" ] && rm -rf "${LOCK_DIR}"
+        rmdir "${LOCK_DIR}.takeover" 2>/dev/null
+        continue
+      fi
+      # Another waiter is taking it over; it holds the takeover directory for milliseconds, so one older than a
+      # minute was left by a waiter that died inside it.
+      if [ -n "$(find "${LOCK_DIR}.takeover" -maxdepth 0 -mmin +1 2>/dev/null)" ]; then
+        rmdir "${LOCK_DIR}.takeover" 2>/dev/null
+      else
+        sleep 1
+      fi
+      continue
+    fi
     if [ "${waited}" -ge "$1" ]; then
       blocked "integration lock is still held after $1s: ${LOCK_DIR} ($(lock_describe)). If no flow is integrating or editing the base branch any more, it is stale: remove that directory and retry."
     fi
@@ -280,12 +309,16 @@ lock_acquire() { # lock_acquire <wait-seconds> <token> <label>
 # lock_describe: owner info, plus a hint when the integrate process that holds it no longer exists.
 lock_describe() {
   local pid info
-  info="$(head -1 "${LOCK_DIR}/owner" 2>/dev/null)"
-  pid="$(printf '%s' "${info}" | sed -n 's/.* pid=\([0-9][0-9]*\) .*/\1/p')"
-  if [ -n "${pid}" ] && ! kill -0 "${pid}" 2>/dev/null; then info="${info}; holder process ${pid} is gone, so the lock is probably stale"; fi
+  info="$(lock_owner)"
+  pid="$(lock_pid "${info}")"
+  if [ -n "${pid}" ] && ! pid_alive "${pid}"; then info="${info}; holder process ${pid} is gone, so the lock is probably stale"; fi
   printf '%s' "${info:-no owner info}"
 }
-lock_token() { sed -n 's/^token=\([^ ]*\).*/\1/p' "${LOCK_DIR}/owner" 2>/dev/null; }
+# pid_alive <pid>: kill -0 also fails for another user's process, so ps decides then.
+pid_alive()  { kill -0 "$1" 2>/dev/null || ps -p "$1" >/dev/null 2>&1; }
+lock_owner() { head -1 "${LOCK_DIR}/owner" 2>/dev/null; }
+lock_pid()   { printf '%s' "$1" | sed -n 's/^token=[^ ]* pid=\([0-9][0-9]*\) .*/\1/p'; } # empty for a manual lock
+lock_token() { lock_owner | sed -n 's/^token=\([^ ]*\).*/\1/p'; }
 lock_release_if_mine() { [ -n "$1" ] && [ "$(lock_token)" = "$1" ] && rm -rf "${LOCK_DIR}"; return 0; }
 new_token() { printf '%s-%s-%s' "$(date +%s)" "$$" "${RANDOM}${RANDOM}"; }
 
