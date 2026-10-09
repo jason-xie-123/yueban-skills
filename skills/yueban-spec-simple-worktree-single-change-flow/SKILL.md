@@ -18,7 +18,7 @@ allowed-tools: Bash, Read, Edit, Write, Grep, Glob, Skill, Agent, AskUserQuestio
 
 **项目钩子**：仓库根目录提交了 `.yueban/config` 时（只认基线分支上已提交的那份；主工作区有这个文件却没提交时 `start` 会 BLOCKED），`start` 每次建好或复用 worktree 后跑其中的 `setup` 命令（代替内建的 `git submodule update --init`），`cleanup` 删 worktree 前跑 `teardown` 命令。项目用它给 worktree 准备独立的运行环境（依赖、端口、数据库等）、把 submodule 签出到 change 分支上。它还可以用 `protect` 列出不允许当基线的分支（如团队的集成分支），`start` 会拒绝。格式和约定见 `wt.sh --help`。
 
-**落回锁**：`integrate` 和 `lock` 拿的是父仓库的 `<git common dir>/yueban-spec-integrate.lock`。它是公开约定（路径、owner 文件首行格式、接管规则见 `wt.sh --help`）：项目里别的会快进基线分支或在基线分支上提交的工具（比如项目自己的 worktree 脚本），按同一约定持有这把锁，就和 `integrate` 互斥。持锁进程已经不在的锁，下一个等锁的会接管；`lock` 拿的手动锁不会被接管，只能 `unlock`。
+**落回锁**：`integrate` 和 `lock` 拿的是最外层父仓库的 `<git common dir>/yueban-spec-integrate.lock`（在 submodule 里跑也是这把）。它是公开约定，写全在 `wt.sh --help` 里：路径、owner 文件首行、token 格式、释放前核对 token、接管的步骤。项目里别的会快进基线分支或在基线分支上提交的工具（比如项目自己的 worktree 脚本），按同一约定持有这把锁，就和 `integrate` 互斥；所有持锁方要在同一台机器上（按进程号判断死活）。持锁进程已经不在的锁，下一个等锁的会接管；`lock` 拿的手动锁（pid 为空）和没有 owner 的锁不会被接管。
 
 **改 submodule 的 change**：worktree 里的 submodule 签出在 `spec/<change>` 分支上、并且和主工作区的 submodule 是同一个仓库（`start` 输出 `SUBMODULE_ON_BRANCH=<路径>`，一般由 setup 钩子做到）时，submodule 里的提交随 change 一起落回：`integrate` 先把这些 submodule 里和基线同名的分支 fast-forward，再落父仓库，父仓库失败就把 submodule 退回去。没有 `SUBMODULE_ON_BRANCH=` 的 submodule 是 detached HEAD，改了它的 change 落不回去，用不带 worktree 的版本做。
 
@@ -102,7 +102,7 @@ cd "<WORKTREE>/<submodule>" && [ "$(git symbolic-ref -q --short HEAD)" = "spec/<
   - 有冲突就按两边的意图解决（另一个 change 已经 archive 的 spec 在 `openspec/specs/` 下，以它为准合并，不要丢掉对方的改动）。实在解决不了：`git rebase --abort`，停下来问用户（subagent 模式下按 BLOCKED 返回），worktree 原样保留。
   - rebase 后**重新跑项目的构建+测试**（这个组合没被测过），失败就修，修完提交。例外：`INCOMING_PATHS` 只有 `openspec/` 下的文件（比如 roadmap 流程提交的 `ROADMAP.md`）时不用重跑。
   - 然后再跑 `integrate`。锁里只做检查和移动基线，rebase 和测试都在锁外，所以并行的 change 多时可能来回几次。**连续 5 次退出码 3**（NEEDS_REBASE 或 NEEDS_MERGE）还落不回：停下来报告（subagent 模式下按 BLOCKED 返回），说明是在和哪些 change 抢。
-- 退出码 `2`：原样报给用户。常见的是：主工作区有未提交的改动（会和 fast-forward 冲突；主工作区的 submodule 有没记录进父仓库的提交也算）；submodule 有未提交的改动、或指针没在父仓库提交；落回会覆盖主工作区里被 ignore 的本地文件（如 `.env`）；分支里混进了属于别的本地分支的提交（被 rebase 到了基线以外的分支上）；基线分支正在别处 rebase；锁被占用太久（消息里有持有者；持有进程已经不在的锁会被自动接管，所以剩下的是还在跑的进程或手动 `lock` 的锁，确认没有别的流程在落回或改基线才可以删锁目录）。
+- 退出码 `2`：原样报给用户。常见的是：主工作区有未提交的改动（会和 fast-forward 冲突；主工作区的 submodule 有没记录进父仓库的提交也算）；submodule 有未提交的改动、或指针没在父仓库提交；落回会覆盖主工作区里被 ignore 的本地文件（如 `.env`）；分支里混进了属于别的本地分支的提交（被 rebase 到了基线以外的分支上）；基线分支正在别处 rebase；锁被占用太久（消息里有持有者；持有进程已经不在的锁会被自动接管，剩下的是还在跑的进程、手动 `lock` 的锁、没有 owner 的锁，或者消息里说接管卡住了、锁目录删不掉的；确认没有别的流程或工具在落回、改基线，才可以删锁目录和消息里提到的 `.takeover.*` 目录）。
 
 ### 4. 清理
 

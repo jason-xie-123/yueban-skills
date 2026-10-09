@@ -44,15 +44,22 @@
 # integrate then fast-forwards the submodule's branch named like the base before the parent's base, and undoes
 # those moves if the parent's fails. Such a branch catches up with its base by merging, not rebasing (NEEDS_MERGE).
 #
-# Integration lock (a contract other tools can rely on): the directory <git common dir>/yueban-spec-integrate.lock
-# of the parent repository, taken with an atomic mkdir and released by removing it. Its holder writes an owner file
-# whose first line starts with 'token=<token> pid=<pid> ' (pid left empty by 'lock', whose lock is never taken
-# over); the rest of the line is for people. Any other tool that fast-forwards or commits on a branch integrate may
-# move (the base in the parent, or the branch of the same name in a submodule) must hold this lock, the same way,
-# while it does so; then it and integrate never move that branch at once. A waiter takes over a lock whose pid no
-# longer runs: under <lock>.takeover (a directory taken with mkdir), it removes the lock only while the owner line is
-# still the dead holder's. Taking over repairs nothing a dead holder left half done; integrate refuses a base
-# worktree left out of step.
+# Integration lock (a contract other tools can rely on). Any other tool that fast-forwards or commits on a branch
+# integrate may move (the base in the parent, or the branch of the same name in a submodule) must hold this lock while
+# it does so; then it and integrate never move that branch at once. All of them must run on the same host and in the
+# same PID namespace (not one inside a container and one outside), since process ids are checked.
+#   - The lock is the directory yueban-spec-integrate.lock in the git common dir of the outermost superproject (the
+#     repository itself when it is not a submodule), taken with mkdir.
+#   - Right after taking it, the holder writes the file 'owner' in it, whose first line starts with
+#     'token=<token> pid=<pid> '; the rest of the line is for people. If that write fails, it removes the directory.
+#     The token is new for every acquisition and matches [A-Za-z0-9_][A-Za-z0-9._-]*. The pid is a process that lives
+#     as long as the lock is held, or empty for a lock held across commands (as 'lock' does).
+#   - The holder releases the lock by removing the directory, and only while the owner line still carries its token.
+#   - A waiter may take over a lock whose pid is set and no longer runs, and only this way: take the directory
+#     <lock>.takeover.<that token> with mkdir; if the lock's first owner line is still the very line it read when it
+#     found the pid gone, remove the lock; then remove the takeover directory. A lock with no owner line, an empty or
+#     unreadable pid, or a token outside the character set above is never taken over.
+#     Taking over repairs nothing a dead holder left half done; integrate refuses a base worktree left out of step.
 #
 # Exit codes:
 #   0 = done (integrate also exits 0 with ALREADY_INTEGRATED when there is nothing left to land)
@@ -98,7 +105,13 @@ real_wt() {
   fi
 }
 set_ctx
-LOCK_DIR="${COMMON_DIR}/yueban-spec-integrate.lock"
+# The lock lives in the outermost superproject, so 'lock' run inside a submodule takes the same one as integrate.
+# It follows the working directory (an exported GIT_DIR, as in a git hook, would hide the superproject).
+LOCK_DIR="$(unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR; top="$(pwd -P)"
+  while sp="$(git -C "${top}" rev-parse --show-superproject-working-tree 2>/dev/null)" && [ -n "${sp}" ]; do top="${sp}"; done
+  cd "${top}" && cd "$(git rev-parse --git-common-dir)" && pwd -P)" \
+  || blocked "cannot find the git common dir of the outermost superproject of $(pwd -P), where the integration lock lives."
+LOCK_DIR="${LOCK_DIR}/yueban-spec-integrate.lock"
 
 current_branch() { git symbolic-ref -q --short HEAD || true; }
 rev()            { git rev-parse -q --verify "refs/heads/$1^{commit}"; }
@@ -278,47 +291,65 @@ config_set() { # git config can fail on a concurrent config.lock; retry briefly
 }
 
 lock_acquire() { # lock_acquire <wait-seconds> <token> <label> [<pid>]
-  local waited=0 owner pid
+  local waited=0 owner pid dead takeover
   while ! mkdir "${LOCK_DIR}" 2>/dev/null; do
     owner="$(lock_owner)"
     pid="$(lock_pid "${owner}")"
-    if [ -n "${pid}" ] && ! pid_alive "${pid}"; then
-      # One waiter at a time takes over, and only while the lock still carries the dead holder's line (one taken in
-      # the meantime has another line, or none yet).
-      if mkdir "${LOCK_DIR}.takeover" 2>/dev/null; then
-        [ "$(lock_owner)" = "${owner}" ] && rm -rf "${LOCK_DIR}"
-        rmdir "${LOCK_DIR}.takeover" 2>/dev/null
+    dead="$(token_of "${owner}")"
+    if [ -n "${pid}" ] && is_token "${dead}" && ! pid_alive "${pid}"; then
+      # Taken over under a directory named after the dead holder's token, so only one waiter at a time can remove that
+      # holder's lock, and only while the lock still carries its line (tokens are never reused, so a lock taken in the
+      # meantime has another line, or none yet). A waiter that dies inside leaves the directory behind: the lock then
+      # stays until the wait times out and someone removes both by hand.
+      takeover="${LOCK_DIR}.takeover.${dead}"
+      if mkdir "${takeover}" 2>/dev/null; then
+        if [ "$(lock_owner)" = "${owner}" ] && ! rm -rf "${LOCK_DIR}"; then
+          rmdir "${takeover}" 2>/dev/null
+          blocked "the lock of a holder that is gone (${owner}) could not be removed: ${LOCK_DIR}. Check its permissions, remove it by hand and retry."
+        fi
+        rmdir "${takeover}" 2>/dev/null
         continue
       fi
-      # Another waiter is taking it over; it holds the takeover directory for milliseconds, so one older than a
-      # minute was left by a waiter that died inside it.
-      if [ -n "$(find "${LOCK_DIR}.takeover" -maxdepth 0 -mmin +1 2>/dev/null)" ]; then
-        rmdir "${LOCK_DIR}.takeover" 2>/dev/null
-      else
-        sleep 1
-      fi
-      continue
     fi
     if [ "${waited}" -ge "$1" ]; then
       blocked "integration lock is still held after $1s: ${LOCK_DIR} ($(lock_describe)). If no flow is integrating or editing the base branch any more, it is stale: remove that directory and retry."
     fi
     sleep 5; waited=$((waited + 5))
   done
-  printf 'token=%s pid=%s since=%s holder=%s cwd=%s\n' "$2" "${4:-}" "$(date '+%Y-%m-%d %H:%M:%S')" "$3" "$PWD" > "${LOCK_DIR}/owner"
+  printf 'token=%s pid=%s since=%s holder=%s cwd=%s\n' "$2" "${4:-}" "$(date '+%Y-%m-%d %H:%M:%S')" "$3" "$PWD" > "${LOCK_DIR}/owner" \
+    || { rm -rf "${LOCK_DIR}"; blocked "could not write ${LOCK_DIR}/owner; the lock was not taken."; }
+  # Takeover directories left by waiters that died after removing a lock: nobody can be removing a lock through them
+  # now, since this one is held and carries a new token.
+  rm -rf "${LOCK_DIR}".takeover.* 2>/dev/null
 }
-# lock_describe: owner info, plus a hint when the integrate process that holds it no longer exists.
+# lock_describe: owner info, plus what keeps a dead holder's lock from being taken over.
 lock_describe() {
-  local pid info
+  local pid info dead
   info="$(lock_owner)"
   pid="$(lock_pid "${info}")"
-  if [ -n "${pid}" ] && ! pid_alive "${pid}"; then info="${info}; holder process ${pid} is gone, so the lock is probably stale"; fi
+  dead="$(token_of "${info}")"
+  if [ -n "${pid}" ] && ! pid_alive "${pid}"; then
+    info="${info}; holder process ${pid} is gone"
+    if ! is_token "${dead}"; then
+      info="${info}, but its token is outside the lock contract's character set, so it is not taken over"
+    elif [ -d "${LOCK_DIR}.takeover.${dead}" ]; then
+      info="${info}, and a waiter died taking the lock over (${LOCK_DIR}.takeover.${dead})"
+    fi
+  fi
   printf '%s' "${info:-no owner info}"
 }
-# pid_alive <pid>: kill -0 also fails for another user's process, so ps decides then.
-pid_alive()  { kill -0 "$1" 2>/dev/null || ps -p "$1" >/dev/null 2>&1; }
+# pid_alive <pid>: kill -0 also fails for another user's process, so ps decides then. A ps that cannot report on this
+# very process (missing, or without -p) decides nothing, so the holder counts as alive.
+pid_alive() {
+  kill -0 "$1" 2>/dev/null && return 0
+  ps -p "$$" >/dev/null 2>&1 || return 0
+  ps -p "$1" >/dev/null 2>&1
+}
 lock_owner() { head -1 "${LOCK_DIR}/owner" 2>/dev/null; }
 lock_pid()   { printf '%s' "$1" | sed -n 's/^token=[^ ]* pid=\([0-9][0-9]*\) .*/\1/p'; } # empty for a manual lock
-lock_token() { lock_owner | sed -n 's/^token=\([^ ]*\).*/\1/p'; }
+token_of()   { printf '%s' "$1" | sed -n 's/^token=\([^ ]*\).*/\1/p'; }
+is_token()   { printf '%s' "$1" | grep -Eq '^[A-Za-z0-9_][A-Za-z0-9._-]*$'; }
+lock_token() { token_of "$(lock_owner)"; }
 lock_release_if_mine() { [ -n "$1" ] && [ "$(lock_token)" = "$1" ] && rm -rf "${LOCK_DIR}"; return 0; }
 new_token() { printf '%s-%s-%s' "$(date +%s)" "$$" "${RANDOM}${RANDOM}"; }
 

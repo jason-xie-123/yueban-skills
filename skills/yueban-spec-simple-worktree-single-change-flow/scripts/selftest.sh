@@ -2,10 +2,11 @@
 # selftest.sh — regression tests for wt.sh against throwaway repos in a temp dir (paths with spaces, one repo with a
 # submodule): start/resume, integrate as a fast-forward of the base worktree, NEEDS_REBASE after a parallel change
 # landed first, two integrates racing, the integration lock, its tokens and its contract with other tools (owner line,
-# taking over a dead holder's lock), cleanup, and the edge cases found in review (deleted worktree dirs, a base being
-# rebased, a tag named like the base, submodule changes, bad arguments),
-# and the .yueban/config hooks with submodules on the change branch: landing submodule commits, NEEDS_MERGE, undoing
-# submodule moves when the parent's fails, hook failures, leftover branches and unsupported submodule changes.
+# taking over a dead holder's lock, stuck or failing takeovers, the lock of a submodule's superproject), cleanup, and
+# the edge cases found in review (deleted worktree dirs, a base being rebased, a tag named like the base, submodule
+# changes, bad arguments), and the .yueban/config hooks with submodules on the change branch: landing submodule
+# commits, NEEDS_MERGE, undoing submodule moves when the parent's fails, hook failures, leftover branches and
+# unsupported submodule changes.
 # Touches nothing outside the temp dir.
 # Usage: selftest.sh      Exit code: 0 = all passed, 1 = a case failed.
 set -uo pipefail
@@ -41,7 +42,7 @@ finish_change() { implement "$1" "$2" "$3" && archive "$1" "$2"; }
 
 M="${TMP}/main repo"; mkdir -p "${M}" && cd "${M}" || exit 1
 git init -q -b develop && printf '.worktrees/\n' > .gitignore && git add .gitignore && git commit -q -m init
-for c in alpha beta gamma delta eps zeta eta; do add_change "${c}"; done
+for c in alpha beta gamma delta eps zeta eta theta; do add_change "${c}"; done
 
 echo "start"
 run "${WT}" start alpha
@@ -129,39 +130,79 @@ check "unlock with the right token releases the lock" eval '[ "${rc}" -eq 0 ] &&
 run in_dir "${M}/.worktrees/eps" "${WT}" integrate
 check "integrate works once the lock is released" eval '[ "${rc}" -eq 0 ] && [ -f e.txt ]'
 
+echo "status"
+run "${WT}" status
+check "status lists state/ahead/behind/dirty per branch" contains "spec/eps.*base=develop.*state=integrated.*ahead=0.*behind=0.*dirty=no"
+
 echo "lock contract"
 fake_lock() { # fake_lock <owner line>: the lock as another tool following the contract would hold it
   mkdir "$(lockdir)" && printf '%s\n' "$1" > "$(lockdir)/owner"
+}
+quick() { # quick <seconds> <command...>: run, killed after <seconds>; ${slow} is 1 when it had to be killed
+  local pid i=0
+  "${@:2}" > "${TMP}/quick.out" 2>&1 & pid=$!
+  while kill -0 "${pid}" 2>/dev/null && [ "${i}" -lt $(($1 * 10)) ]; do sleep 0.1; i=$((i + 1)); done
+  slow=0; kill -0 "${pid}" 2>/dev/null && { slow=1; kill "${pid}" 2>/dev/null; }
+  wait "${pid}"; rc=$?; out="$(cat "${TMP}/quick.out")"
 }
 sh -c 'exit 0' & dead_pid=$!; wait "${dead_pid}"
 run "${WT}" lock
 token="$(printf '%s\n' "${out}" | sed -n 's/^LOCK_TOKEN=//p')"
 check "lock writes the documented owner line (token, then an empty pid)" eval 'head -1 "$(lockdir)/owner" | grep -q "^token=${token} pid= "'
+check "tokens match the documented character set" eval 'printf "%s" "${token}" | grep -Eq "^[A-Za-z0-9_][A-Za-z0-9._-]*$"'
 "${WT}" unlock "${token}" >/dev/null 2>&1
 fake_lock "token=other pid=$$ since=x holder=another tool"
 run "${WT}" lock --wait 0
 check "a lock another tool holds with a live pid is waited for, not taken over" eval '[ "${rc}" -eq 2 ] && contains "still held" && grep -q "^token=other " "$(lockdir)/owner"'
 rm -rf "$(lockdir)"
+fake_lock "token=root pid=1 since=x holder=another user's tool"
+run "${WT}" lock --wait 0
+check "a lock held by another user's live process (kill -0 fails) is not taken over" eval '[ "${rc}" -eq 2 ] && grep -q "^token=root " "$(lockdir)/owner"'
+rm -rf "$(lockdir)"
+mkdir -p "${TMP}/no-ps-p" && printf '#!/bin/sh\nexit 1\n' > "${TMP}/no-ps-p/ps" && chmod +x "${TMP}/no-ps-p/ps"
+fake_lock "token=root pid=1 since=x holder=another user's tool"
+run env PATH="${TMP}/no-ps-p:${PATH}" "${WT}" lock --wait 0
+check "with a ps that cannot report on a process, another user's live holder is not taken over" eval '[ "${rc}" -eq 2 ] && grep -q "^token=root " "$(lockdir)/owner"'
+rm -rf "$(lockdir)"
+fake_lock "token=bad/token pid=${dead_pid} since=x holder=a tool with a bad token"
+run "${WT}" lock --wait 0
+check "a dead holder's lock whose token breaks the contract is not taken over, and says why" eval '[ "${rc}" -eq 2 ] && contains "character set" && grep -q "^token=bad/token " "$(lockdir)/owner"'
+rm -rf "$(lockdir)"
 fake_lock "token=other pid= since=x holder=another tool (manual)"
 run "${WT}" lock --wait 0
 check "a lock with no pid is never taken over" eval '[ "${rc}" -eq 2 ] && grep -q "^token=other " "$(lockdir)/owner"'
 rm -rf "$(lockdir)"
+mkdir "$(lockdir)"
+run "${WT}" lock --wait 0
+check "a lock with no owner file is never taken over" eval '[ "${rc}" -eq 2 ] && [ -d "$(lockdir)" ] && [ ! -e "$(lockdir)/owner" ]'
+rm -rf "$(lockdir)"
 fake_lock "token=dead pid=${dead_pid} since=x holder=a tool that died"
 run "${WT}" lock --wait 0
 token="$(printf '%s\n' "${out}" | sed -n 's/^LOCK_TOKEN=//p')"
-check "a lock whose holder process is gone is taken over" eval '[ "${rc}" -eq 0 ] && grep -q "^token=${token} " "$(lockdir)/owner" && [ ! -d "$(lockdir).takeover" ]'
+check "a lock whose holder process is gone is taken over" eval '[ "${rc}" -eq 0 ] && grep -q "^token=${token} " "$(lockdir)/owner" && [ -z "$(ls -d "$(lockdir)".takeover* 2>/dev/null)" ]'
 "${WT}" unlock "${token}" >/dev/null 2>&1
 fake_lock "token=dead pid=${dead_pid} since=x holder=a tool that died"
-mkdir "$(lockdir).takeover" && touch -t 202001010000 "$(lockdir).takeover"
-run "${WT}" lock --wait 0
+mkdir "$(lockdir).takeover.dead"
+quick 3 "${WT}" lock --wait 0
+check "a takeover stuck in a dead waiter's directory times out with BLOCKED (wait honoured) and names it" eval '[ "${rc}" -eq 2 ] && [ "${slow}" -eq 0 ] && contains "takeover.dead" && grep -q "^token=dead " "$(lockdir)/owner"'
+rm -rf "$(lockdir)" "$(lockdir).takeover.dead"
+mkdir "$(lockdir).takeover.gone"
+run "${WT}" lock
 token="$(printf '%s\n' "${out}" | sed -n 's/^LOCK_TOKEN=//p')"
-check "a takeover directory left by a waiter that died is cleared, then the lock is taken over" eval '[ "${rc}" -eq 0 ] && [ -n "${token}" ] && [ ! -d "$(lockdir).takeover" ]'
+check "taking the lock clears takeover directories left by waiters that died after removing a lock" eval '[ "${rc}" -eq 0 ] && [ ! -e "$(lockdir).takeover.gone" ]'
 "${WT}" unlock "${token}" >/dev/null 2>&1
+if [ "$(id -u)" != 0 ]; then
+  fake_lock "token=dead pid=${dead_pid} since=x holder=a tool that died"; chmod 555 "$(lockdir)"
+  quick 3 "${WT}" lock --wait 0
+  check "a dead holder's lock that cannot be removed is BLOCKED at once, not retried forever" eval '[ "${rc}" -eq 2 ] && [ "${slow}" -eq 0 ] && contains "could not be removed" && [ -z "$(ls -d "$(lockdir)".takeover* 2>/dev/null)" ]'
+  chmod 755 "$(lockdir)"; rm -rf "$(lockdir)"
+fi
+fake_lock "token=dead pid=${dead_pid} since=x holder=a tool that died"
+"${WT}" start theta >/dev/null 2>&1; finish_change "${M}/.worktrees/theta" theta th.txt
+run in_dir "${M}/.worktrees/theta" "${WT}" integrate
+check "integrate takes over a dead holder's lock and lands" eval '[ "${rc}" -eq 0 ] && [ -f th.txt ] && [ ! -d "$(lockdir)" ]'
+"${WT}" cleanup theta >/dev/null 2>&1 || echo "     cleanup theta failed"
 check "the lock is free after the contract cases" eval '[ ! -d "$(lockdir)" ]'
-
-echo "status"
-run "${WT}" status
-check "status lists state/ahead/behind/dirty per branch" contains "spec/eps.*base=develop.*state=integrated.*ahead=0.*behind=0.*dirty=no"
 
 echo "cleanup"
 run in_dir "${M}/.worktrees/alpha" "${WT}" cleanup alpha
@@ -252,7 +293,20 @@ run in_dir .worktrees/iota "${WT}" integrate
 check "integrate ignores untracked build output inside a submodule" eval '[ "${rc}" -eq 0 ] && [ -f i.txt ]'
 run "${WT}" cleanup iota
 check "cleanup removes a worktree that has submodules" eval '[ "${rc}" -eq 0 ] && [ ! -e .worktrees/iota ]'
+run in_dir "${P}/sub" "${WT}" lock
+token="$(printf '%s\n' "${out}" | sed -n 's/^LOCK_TOKEN=//p')"
+check "lock run inside a submodule takes the superproject's lock" eval '[ "${rc}" -eq 0 ] && [ -d "${P}/.git/yueban-spec-integrate.lock" ] && [ -z "$(find "${P}/.git/modules" -name "yueban-spec-integrate.lock*")" ]'
+run "${WT}" unlock "${token}"
+check "and it is released from the superproject" eval '[ "${rc}" -eq 0 ] && [ ! -e "${P}/.git/yueban-spec-integrate.lock" ]'
 "${WT}" start kappa >/dev/null 2>&1
+run in_dir "${P}/.worktrees/kappa/sub" "${WT}" lock
+token="$(printf '%s\n' "${out}" | sed -n 's/^LOCK_TOKEN=//p')"
+check "lock run in a submodule of a change worktree takes the superproject's lock" eval '[ "${rc}" -eq 0 ] && [ -d "${P}/.git/yueban-spec-integrate.lock" ]'
+"${WT}" unlock "${token}" >/dev/null 2>&1
+run in_dir "${P}/sub" env GIT_DIR="$(git -C "${P}/sub" rev-parse --absolute-git-dir)" "${WT}" lock
+token="$(printf '%s\n' "${out}" | sed -n 's/^LOCK_TOKEN=//p')"
+check "an exported GIT_DIR (as in a hook) does not hide the superproject's lock" eval '[ "${rc}" -eq 0 ] && [ -d "${P}/.git/yueban-spec-integrate.lock" ]'
+"${WT}" unlock "${token}" >/dev/null 2>&1
 ( cd .worktrees/kappa/sub && git commit -q --allow-empty -m local-only )
 ( cd .worktrees/kappa && git add sub ) && finish_change "${P}/.worktrees/kappa" kappa k.txt
 run in_dir .worktrees/kappa "${WT}" integrate
