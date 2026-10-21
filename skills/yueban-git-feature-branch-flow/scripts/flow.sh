@@ -220,7 +220,7 @@ repo_default_base() {
 
 require_change_id() {
   if [ -z "${1:-}" ]; then
-    echo "Usage: $0 ${2:-<cmd>} <change-id>" >&2
+    echo "Usage: $0 ${2:-<cmd>} <change-id>${3:+ $3}" >&2
     exit 1
   fi
 }
@@ -770,7 +770,7 @@ case "${1:-}" in
   branches) cmd_branches ;;
   status) cmd_status ;;
   start)
-    require_change_id "${2:-}" "start"
+    require_change_id "${2:-}" "start" "<base-branch>"
     if [ -z "${3:-}" ]; then
       echo "Usage: $0 start <change-id> <base-branch>" >&2
       exit 1
