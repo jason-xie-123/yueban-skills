@@ -703,6 +703,18 @@ cmd_pr() {
     return 1
   fi
 
+  # pr.protect in .yueban/config: space-separated branches no PR may target.
+  local pf="$REPO_ROOT/.yueban/config" pb denied=()
+  if [ -f "$pf" ]; then
+    read -r -a denied <<< "$(git config -f "$pf" --get pr.protect 2>/dev/null)"
+    for pb in ${denied[@]+"${denied[@]}"}; do
+      if [ "$pb" = "$base_branch" ]; then
+        echo "BLOCKED: '$base_branch' is listed in pr.protect of .yueban/config: no PR may target it. Nothing was opened." >&2
+        return 2
+      fi
+    done
+  fi
+
   if ! command -v gh >/dev/null 2>&1; then
     echo "BLOCKED: gh (GitHub CLI) not found. Install it first (https://cli.github.com), then \`gh auth login\`." >&2
     return 2

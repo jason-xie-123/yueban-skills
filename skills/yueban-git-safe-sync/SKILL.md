@@ -94,6 +94,7 @@ scripts/sync.sh pr <base-branch> --draft             # 创建为 draft PR
 用户场景："这条功能分支做完了，帮我开 PR 合回 develop。"
 
 1. 确认 base 分支名，先运行 `scripts/sync.sh pr <base-branch> --dry-run`。
+   项目可在已提交的 `.yueban/config` 里用 `[pr] protect = <分支…>`（空格分隔）列出不允许作为 PR 目标的分支，`pr <base>` 命中时在任何检查和创建之前直接 BLOCKED。
 2. 脚本会对父仓库和每个 submodule 做预检：当前分支非 detached、无未提交改动、当前分支已经和它自己的 `origin/<分支>` 完全同步（不多不少）、`gh` 能从该仓库的 remote 解析出对应的 GitHub 仓库（remote 不是 GitHub 或没有权限会 BLOCKED）。**任何仓库有未推送或落后的提交都会 BLOCKED**，提示先跑 `scripts/sync.sh push`（或 `pull`）——这是为了保证 PR 里看到的内容和本地看到的完全一致，不会出现"本地改了但 PR 没体现"或反过来的情况。同理，父仓库里有未提交的 submodule 指针更新（submodule 已经前进、父仓库还没 commit 新指针）也会 BLOCKED，否则父仓库的 PR 引用的还是旧的 submodule commit。
 3. 通过预检的仓库会打印一个 `PLAN`：目标仓库、`<当前分支> -> <base-branch>`、自动生成的标题和正文预览（正文是这条分支相对 `origin/<base-branch>` 的 commit 列表；只有一个 commit 时标题就用那条 commit message，多个 commit 时标题用分支名）。这条分支已经有 open 状态 PR 的仓库会标成 `SKIP` 并带上已有 PR 链接，不会重复开（同一分支以前开过、已经 merged/closed 的 PR 不算，会照常计划新开）；相对 base 没有新 commit 的仓库同样 `SKIP`。
 4. **把这份 PLAN 转述给用户确认**（标题、正文、涉及哪些仓库），确认没问题再运行不带 `--dry-run` 的同一条命令（需要 draft PR 就加 `--draft`）真正创建。这一步依赖 `gh` CLI 且要求本机已 `gh auth login`；`gh` 不存在或没登录会在预检阶段就 `BLOCKED`。

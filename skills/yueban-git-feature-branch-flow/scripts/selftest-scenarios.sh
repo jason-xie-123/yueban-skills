@@ -218,6 +218,13 @@ git -C "${T}/rb" rebase -q --exec false HEAD~1 >/dev/null 2>&1
 out="$(flow sync feat-p 2>&1)"; rc=$?
 check "sync BLOCKS up front when a rebasing worktree holds the branch (no partial switch)" eval '[ "${rc}" -eq 2 ] && all_on develop . sub-a'
 
+echo "== start refuses a base listed in worktree.protect"
+fresh
+mkdir -p .yueban; printf '[worktree]\n\tprotect = develop main\n' > .yueban/config
+out="$(flow start feat-prot develop 2>&1)"; rc=$?
+check "start BLOCKS on a protected base and changes nothing" eval '[ "${rc}" -eq 2 ] && contains "worktree.protect" && all_on develop . sub-a sub-b'
+rm -rf .yueban
+
 echo
 echo "passed=${npass} failed=${nfail}"
 [ "${fail}" -eq 0 ] && echo "ALL PASSED" || echo "SOME CASES FAILED"

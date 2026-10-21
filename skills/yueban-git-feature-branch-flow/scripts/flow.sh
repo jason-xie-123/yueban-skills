@@ -269,6 +269,16 @@ cmd_status() {
 
 # --- start ------------------------------------------------------------------
 
+# base_is_protected <branch>: whether .yueban/config lists <branch> in worktree.protect
+# (space-separated branches a change must not be based on, e.g. shared integration branches).
+base_is_protected() {
+  local f="$REPO_ROOT/.yueban/config" b list=()
+  [ -f "$f" ] || return 1
+  read -r -a list <<< "$(git config -f "$f" --get worktree.protect 2>/dev/null)"
+  for b in ${list[@]+"${list[@]}"}; do [ "$b" = "$1" ] && return 0; done
+  return 1
+}
+
 cmd_start() {
   local change_id="$1" base_branch="$2"
   local -a act_paths=() act_ff=()
@@ -277,6 +287,10 @@ cmd_start() {
 
   if ! git check-ref-format --branch "$change_id" >/dev/null 2>&1; then
     echo "BLOCKED: '$change_id' is not a valid branch name. Nothing changed." >&2
+    return 2
+  fi
+  if base_is_protected "$base_branch"; then
+    echo "BLOCKED: '$base_branch' is listed in worktree.protect of .yueban/config, so a change must not be based on it. Pick your own working branch as the base. Nothing changed." >&2
     return 2
   fi
 
