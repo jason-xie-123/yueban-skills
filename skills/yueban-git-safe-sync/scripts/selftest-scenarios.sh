@@ -251,10 +251,10 @@ check "pr: a repo with an open PR is SKIPped" eval '[ "${rc}" -eq 0 ] && contain
 git -C A/deprecated/old checkout -q --detach HEAD; commit_in A/deprecated/old f moved "drift" 2>/dev/null
 out="$(cd A && PATH="${TMP}/fakebin:${PATH}" bash "${SYNC}" pr develop --dry-run 2>&1)"; rc=$?
 check "pr: a moved deprecated/ submodule does not BLOCK the PR (deprecated is out of scope)" [ "${rc}" -eq 0 ]
-mkdir -p A/.yueban; printf '[pr]\n\tprotect = develop\n' > A/.yueban/config
-out="$(cd A && PATH="${TMP}/fakebin:${PATH}" bash "${SYNC}" pr develop --dry-run 2>&1)"; rc=$?
-check "pr: a base listed in pr.protect is BLOCKED" eval '[ "${rc}" -eq 2 ] && contains "pr.protect"'
+mkdir -p A/.yueban; printf '[pr]\n\tprotect = main\n' > A/.yueban/config
 out="$(cd A && PATH="${TMP}/fakebin:${PATH}" bash "${SYNC}" pr main --dry-run 2>&1)"; rc=$?
+check "pr: a base listed in pr.protect is BLOCKED" eval '[ "${rc}" -eq 2 ] && contains "pr.protect"'
+out="$(cd A && PATH="${TMP}/fakebin:${PATH}" bash "${SYNC}" pr develop --dry-run 2>&1)"; rc=$?
 check "pr: a base not listed in pr.protect is not blocked by it" eval '! contains "pr.protect"'
 rm -rf A/.yueban
 
