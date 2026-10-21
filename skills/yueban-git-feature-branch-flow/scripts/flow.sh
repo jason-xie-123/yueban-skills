@@ -409,7 +409,7 @@ cmd_pending() {
 
   echo
   if [ "$any_dirty" -eq 1 ]; then
-    echo "Commit each DIRTY submodule above via the yueban-git-commit skill (commit + push inside that submodule) first, then the superproject last (its commit records the new submodule pointers)."
+    echo "Commit each DIRTY submodule above via the yueban-git-commit skill (it only commits: commit inside that submodule, then push it yourself) first, then the superproject last (its commit records the new submodule pointers)."
   else
     echo "Nothing pending."
   fi

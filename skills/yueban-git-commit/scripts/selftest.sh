@@ -214,7 +214,7 @@ p2_bump colleague colleague   # parent now records a commit that only origin/col
 git pull -q --ff-only origin develop 2>/dev/null
 echo work > a/w
 check "dirty => case 1" eval '[ -n "$(git -C a status --porcelain)" ]'
-git -C a add w && git -C a commit -q -m mywork && git -C a push -q origin develop   # case 1: commit + push inside
+git -C a add w && git -C a commit -q -m mywork && git -C a push -q origin develop   # case 1: the user commits and pushes inside the submodule
 both "${P}" "${CASE2}"
 check "after case 1 commit+push, check 1 says NOT forward (would drop the colleague commit) (zsh+bash)" both_have "NOT forward"
 git add a
@@ -269,17 +269,6 @@ EOF
 both "${P}" "${MSG}"
 check "heredoc message is taken literally in zsh and bash" eval '[ "${oz}" = "${ob}" ] && has "${oz}" "keep \$HOME, \`cmd\`, !bang" && has "${oz}" "\${var:h}"'
 git reset -q --hard HEAD~2
-
-echo "== step 5: push"
-git checkout -q -b feat1 && git commit -q --allow-empty -m f1
-check "plain git push fails without an upstream" eval '! git push -q 2>/dev/null'
-check "git push -u origin HEAD publishes feat1 and sets its upstream" eval '
-  git push -q -u origin HEAD 2>/dev/null && [ "$(git rev-parse --abbrev-ref @{u})" = origin/feat1 ]'
-git checkout -q -b feat2 origin/develop && git commit -q --allow-empty -m f2
-out="$(git push 2>&1)"; rc=$?
-check "branch created from origin/develop: git push refuses (name mismatch)" eval '[ "${rc}" -ne 0 ]'
-check "...and git's hint suggests pushing HEAD:develop (an agent must not follow it)" has "${out}" "HEAD:develop"
-git checkout -q develop
 
 echo "== safety: base-branch lookup"
 check "git ls-remote --symref origin HEAD finds the remote default branch" eval 'has "$(git ls-remote --symref origin HEAD)" "refs/heads/develop"'

@@ -65,8 +65,8 @@ scripts/flow.sh finish <change-id> --cleanup    # 确认已合并后，删除各
 用户在功能分支上改代码是正常开发过程，不需要这个 skill 介入。但到了要提交的时候：
 
 1. 跑 `scripts/flow.sh pending <change-id>`，看哪些仓库在 `<change-id>` 上有未提交改动，以及给定的提交顺序（submodule 在前、父仓库在后）。
-2. 按报告顺序，对每一个 DIRTY 的 submodule：**调用 `yueban-git-commit` skill**，在该 submodule 目录下完成"分析 diff → 生成 Conventional Commits message → 提交 → 推送"。不要绕开这个 skill 自己写 commit 逻辑——它已经处理好了"submodule 本身脏 vs 仅指针变了"这两种情况的区分，也知道不能对脏的 submodule 目录做 `git add -A`。
-3. 所有涉及的 submodule 都提交并推送完之后，**最后**对父仓库调用一次 `yueban-git-commit`——这时父仓库工作区应该只剩 submodule 指针变化，它会自动识别出这是指针更新场景，生成类似 `chore: bump <submodule 名字> submodule(s)` 的提交并推送到父仓库的 `<change-id>` 分支。
+2. 按报告顺序，对每一个 DIRTY 的 submodule：**调用 `yueban-git-commit` skill**，在该 submodule 目录下完成"分析 diff → 生成 Conventional Commits message → 提交"（`yueban-git-commit` 只提交、不推送，推送由用户自己做，或用 `yueban-git-safe-sync` 的 `push`）。不要绕开这个 skill 自己写 commit 逻辑——它已经处理好了"submodule 本身脏 vs 仅指针变了"这两种情况的区分，也知道不能对脏的 submodule 目录做 `git add -A`。
+3. 所有涉及的 submodule 都提交并由用户推送完之后（父仓库的指针要指向已在 submodule 远程的提交），**最后**对父仓库调用一次 `yueban-git-commit`——这时父仓库工作区应该只剩 submodule 指针变化，它会自动识别出这是指针更新场景，生成类似 `chore: bump <submodule 名字> submodule(s)` 的提交（父仓库的 `<change-id>` 分支同样由用户自己推送）。
 4. 如果某个 submodule 还没准备好提交（比如改了一半），跳过它即可，不强求每次都所有仓库一起提交。
 
 ### 3. 换机器续接 / 日常同步（sync）

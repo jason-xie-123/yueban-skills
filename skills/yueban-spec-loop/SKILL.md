@@ -27,7 +27,7 @@ APPLY → VERIFY →（FAIL 时 FIX 一次）→ ARCHIVE → CHECK_GOAL_DONE，�
   **代码 review 从不让循环停下**：`VERIFY` 只跑一次、`FIX` 只修一次，然后不管是否仍有问题都归档并推送，
   遗留问题写进 archive 的 commit message（标题带 ` [known gaps]`）和 Iteration Log——本技能的目的是
   让人不用守在执行过程里，review 的结果留给人事后看。
-  本技能不依赖目标项目安装了其他任何技能（比如本仓库自带的 `yueban-git-commit`）。这是本技能区别于 `yueban-spec-single-change-flow`/`yueban-spec-roadmap-flow`（两者都只 commit、不自动 push）的关键差异：本技能是为完全无人值守运行设计的，没人在场按 `yueban-git-commit` 的"push 前确认"逻辑做确认，所以 push 是自动的、无提示的。
+  本技能不依赖目标项目安装了其他任何技能（比如本仓库自带的 `yueban-git-commit`）。这是本技能区别于 `yueban-spec-single-change-flow`/`yueban-spec-roadmap-flow`（两者都只 commit、不自动 push）的关键差异：本技能是为完全无人值守运行设计的，`yueban-git-commit` 只提交、不推送，而本技能没人在场手动推送，所以 push 由本技能自己自动完成、无提示。
 - **目标项目必须已经在其默认 profile 下初始化过 OpenSpec。** 做任何事之前先检查：
 
   ```bash
