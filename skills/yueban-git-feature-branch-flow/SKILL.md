@@ -25,7 +25,7 @@ allowed-tools: Bash, Skill, AskUserQuestion
 
 ## 核心原则
 
-1. **base 分支可选，由用户在 `start` 时决定**，不写死具体分支名——列出父仓库本地分支，让用户挑，这个选择随后记在每个仓库的 git config 里，`sync`/`finish` 不需要用户重复输入。项目可在已提交的 `.yueban/config` 里用 `[worktree] protect = <分支…>`（空格分隔）列出不允许当 base 的分支（如共享集成分支），`start` 遇到时直接 BLOCKED、不改任何仓库；与 `yueban-spec-simple-worktree-*` 共用同一个配置项。
+1. **base 分支可选，由用户在 `start` 时决定**，不写死具体分支名——列出父仓库本地分支，让用户挑，这个选择随后记在每个仓库的 git config 里，`sync`/`finish` 不需要用户重复输入。项目可在已提交的 `.yueban/config` 里用 `[feature-branch] protect = <分支…>`（空格分隔）列出不允许当 base 的分支（如只接收快进的发版分支），`start` 遇到时直接 BLOCKED、不改任何仓库。它不读 `yueban-spec-simple-worktree-*` 用的 `[worktree] protect`：那些流程会自己把改动落回 base，所以要挡住共享集成分支；本 skill 从不自己合并（见第 4 条），从共享集成分支切出、收尾时走 PR 合回去是正常用法。
 2. **所有涉及的仓库统一动作**：`start`/`sync`/`--cleanup` 先对所有仓库做完预检（分支、未提交改动、分叉、worktree 占用、没初始化的 submodule 等），有一处不满足就一个仓库都不动。预检全过后才逐个仓库执行；执行中途某条 git 命令意外失败时，会停在那里并列出已经做完的仓库，不会回滚，按提示处理后重跑即可。
 3. **commit 的实际操作委托给 `yueban-git-commit` skill**，本 skill 只负责编排顺序（`pending` 命令报告谁该先提交），不重新实现 Conventional Commits 生成逻辑或 submodule 脏检测——那些 `yueban-git-commit` 已经做了。
 4. **合并收尾必须人工执行**：本地合并还是走 PR、要不要 code review，这些决定权在用户；本 skill 只做前置检查（是否已推送、是否已合并）和报告，不自动执行合并。

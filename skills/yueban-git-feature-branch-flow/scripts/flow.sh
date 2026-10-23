@@ -269,12 +269,13 @@ cmd_status() {
 
 # --- start ------------------------------------------------------------------
 
-# base_is_protected <branch>: whether .yueban/config lists <branch> in worktree.protect
-# (space-separated branches a change must not be based on, e.g. shared integration branches).
+# base_is_protected <branch>: whether .yueban/config lists <branch> in feature-branch.protect
+# (space-separated branches start refuses as a base, e.g. a release branch). worktree.protect is not read: the
+# worktree flows land on their base by themselves, while this flow never merges, so the two lists differ.
 base_is_protected() {
   local f="$REPO_ROOT/.yueban/config" b list=()
   [ -f "$f" ] || return 1
-  read -r -a list <<< "$(git config -f "$f" --get worktree.protect 2>/dev/null)"
+  read -r -a list <<< "$(git config -f "$f" --get feature-branch.protect 2>/dev/null)"
   for b in ${list[@]+"${list[@]}"}; do [ "$b" = "$1" ] && return 0; done
   return 1
 }
@@ -290,7 +291,7 @@ cmd_start() {
     return 2
   fi
   if base_is_protected "$base_branch"; then
-    echo "BLOCKED: '$base_branch' is listed in worktree.protect of .yueban/config, so a change must not be based on it. Pick your own working branch as the base. Nothing changed." >&2
+    echo "BLOCKED: '$base_branch' is listed in feature-branch.protect of .yueban/config, so a change must not be based on it. Pick your own working branch as the base. Nothing changed." >&2
     return 2
   fi
 

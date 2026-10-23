@@ -218,12 +218,17 @@ git -C "${T}/rb" rebase -q --exec false HEAD~1 >/dev/null 2>&1
 out="$(flow sync feat-p 2>&1)"; rc=$?
 check "sync BLOCKS up front when a rebasing worktree holds the branch (no partial switch)" eval '[ "${rc}" -eq 2 ] && all_on develop . sub-a'
 
-echo "== start refuses a base listed in worktree.protect"
+echo "== start refuses a base listed in feature-branch.protect, and ignores worktree.protect"
 fresh
-mkdir -p .yueban; printf '[worktree]\n\tprotect = develop main\n' > .yueban/config
+mkdir -p .yueban; printf '[feature-branch]\n\tprotect = develop main\n' > .yueban/config
 out="$(flow start feat-prot develop 2>&1)"; rc=$?
-check "start BLOCKS on a protected base and changes nothing" eval '[ "${rc}" -eq 2 ] && contains "worktree.protect" && all_on develop . sub-a sub-b'
+check "start BLOCKS on a protected base and changes nothing" eval '[ "${rc}" -eq 2 ] && contains "feature-branch.protect" && all_on develop . sub-a sub-b'
 rm -rf .yueban
+fresh
+mkdir -p .yueban; printf '[worktree]\n\tprotect = develop main\n[feature-branch]\n\tprotect = main\n' > .yueban/config
+git add .yueban/config && git commit -q -m "add .yueban/config"
+out="$(flow start feat-wtprot develop 2>&1)"; rc=$?
+check "start allows a base listed only in worktree.protect" eval '[ "${rc}" -eq 0 ] && all_on feat-wtprot . sub-a sub-b'
 
 echo
 echo "passed=${npass} failed=${nfail}"
