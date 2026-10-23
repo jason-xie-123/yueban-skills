@@ -291,7 +291,7 @@ cmd_start() {
     return 2
   fi
   if base_is_protected "$base_branch"; then
-    echo "BLOCKED: '$base_branch' is listed in feature-branch.protect of .yueban/config, so a change must not be based on it. Pick your own working branch as the base. Nothing changed." >&2
+    echo "BLOCKED: '$base_branch' is listed in feature-branch.protect of .yueban/config, so a change must not be based on it. Pick another base. Nothing changed." >&2
     return 2
   fi
 
