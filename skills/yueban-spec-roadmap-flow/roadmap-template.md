@@ -2,7 +2,7 @@
 
 本文汇总当前待实施的独立 OpenSpec 变更（均已完成 proposal/design/specs/tasks 四份产出物，状态：**待实施**）及其依赖顺序。
 
-这是 `openspec/changes/ROADMAP.md` 的结构权威范本，供 `yueban-spec-roadmap-flow` 和 `yueban-spec-single-change-flow` 两个 skill 共同引用，避免各自文字描述跑偏。「有依赖关系」「无强依赖」「阻塞中」三个待办小节与「实施方式」由 `yueban-spec-roadmap-flow` 独占维护，其中只有前两个是它批量推进时逐个处理的待办；最后三个小节是"日志"区域，由 `yueban-spec-single-change-flow` 在它自己第五步的提交里追加维护。
+这是 roadmap 文件（默认 `openspec/changes/ROADMAP.md`；一个项目有多条线时每条线一个文件，如 `openspec/changes/ROADMAP-<线名>.md`）的结构权威范本，供 `yueban-spec-roadmap-flow` 和 `yueban-spec-single-change-flow` 两个 skill 共同引用，避免各自文字描述跑偏。「有依赖关系」「无强依赖」「阻塞中」三个待办小节与「实施方式」由 `yueban-spec-roadmap-flow` 独占维护，其中只有前两个是它批量推进时逐个处理的待办；最后三个小节是"日志"区域，由 `yueban-spec-single-change-flow` 在它自己第五步的提交里追加维护。
 
 ## 有依赖关系、需要按顺序执行
 

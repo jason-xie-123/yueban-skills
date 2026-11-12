@@ -2,7 +2,7 @@
 
 本文汇总当前待实施的 OpenSpec change 及其执行顺序。
 
-这是 `openspec/changes/ROADMAP.md` 的结构范本。「有依赖关系」「无强依赖」「阻塞中」三个待办小节由 `yueban-spec-simple-worktree-roadmap-flow`（并行）或 `yueban-spec-simple-roadmap-flow`（串行）维护，两者格式相同、可以混用：前两个是待办，完成的 change 直接删除条目，不保留历史。
+这是 roadmap 文件（默认 `openspec/changes/ROADMAP.md`；一个项目有多条线时每条线一个文件，如 `openspec/changes/ROADMAP-<线名>.md`）的结构范本。「有依赖关系」「无强依赖」「阻塞中」三个待办小节由 `yueban-spec-simple-worktree-roadmap-flow`（并行）或 `yueban-spec-simple-roadmap-flow`（串行）维护，两者格式相同、可以混用：前两个是待办，完成的 change 直接删除条目，不保留历史。
 
 ## 有依赖关系、需要按顺序执行
 

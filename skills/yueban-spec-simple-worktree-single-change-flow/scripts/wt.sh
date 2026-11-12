@@ -18,7 +18,7 @@
 #   wt.sh landed    <change> [--base <branch>]   Read-only: is the change archived on the base branch?
 #                                                Prints LANDED=yes / no / unknown.
 #   wt.sh lock      [--wait <seconds>]           Take the integration lock (to commit on the base branch outside
-#                                                integrate, e.g. ROADMAP.md). Prints LOCK_TOKEN=<token>.
+#                                                integrate, e.g. a roadmap file). Prints LOCK_TOKEN=<token>.
 #   wt.sh unlock    <token>                      Release a lock taken with 'lock'; refuses another holder's lock.
 #   wt.sh status                                 List spec/* branches: worktree, state, ahead/behind, dirty.
 #

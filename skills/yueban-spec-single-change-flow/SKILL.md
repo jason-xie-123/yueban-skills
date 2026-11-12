@@ -1,6 +1,6 @@
 ---
 name: yueban-spec-single-change-flow
-description: 只有当用户用自己的话明确、直接要求把本仓库里某一个 pending 的 OpenSpec change 推进到完成时才调用（比如"推进下一个 spec"/"跑一下 spec 流程"/"用 yueban-spec-single-change-flow 跑一下"/直接点名某个 change 要求推进完成）。不要从一般性的 OpenSpec 相关讨论、提到 ROADMAP.md 或 openspec/changes/、或任何间接/启发式信号里推断要用这个 skill——它会触发多 agent workflow 和真实的 commit（不自动 push），必须由用户主动触发，不能靠 AI 推断。不确定用户是不是这个意思时，先问，不要直接调用。
+description: 只有当用户用自己的话明确、直接要求把本仓库里某一个 pending 的 OpenSpec change 推进到完成时才调用（比如"推进下一个 spec"/"跑一下 spec 流程"/"用 yueban-spec-single-change-flow 跑一下"/直接点名某个 change 要求推进完成）。不要从一般性的 OpenSpec 相关讨论、提到 roadmap 文件或 openspec/changes/、或任何间接/启发式信号里推断要用这个 skill——它会触发多 agent workflow 和真实的 commit（不自动 push），必须由用户主动触发，不能靠 AI 推断。不确定用户是不是这个意思时，先问，不要直接调用。
 license: MIT
 compatibility: 'Requires the openspec CLI (on PATH), git, the openspec-apply-change skill at .claude/skills/openspec-apply-change/SKILL.md (installed by `openspec init`/`openspec update`; invoked via the Skill tool, e.g. `Skill({skill: "openspec-apply-change"})` — do not confuse with the built-in opsx:apply skill), the AskUserQuestion tool, and the Workflow tool (multi-agent orchestration).'
 allowed-tools: Bash, Read, Edit, Grep, Glob, Skill, Workflow, AskUserQuestion
@@ -14,7 +14,9 @@ allowed-tools: Bash, Read, Edit, Grep, Glob, Skill, Workflow, AskUserQuestion
 
 - **第一步的多轮校验循环审查的是 spec 文档本身**（`proposal.md`/`design.md`/`tasks.md`/`specs/**/*.md`）——这几份文档内部是否自洽、里面对代码库现状的假设是否还成立、任务拆分是否还对应当前代码结构。这一步发生在实施之前，此时 `tasks.md` 里的任务大概率还没做，**审查对象是文档描述本身，不是实施结果**，修复 agent 只改这几份 markdown 文档，不碰其他任何东西。
 - **第二步的实施由标准的 `openspec-apply-change` skill 完成**（安装在目标项目的 `.claude/skills/openspec-apply-change/SKILL.md`，由 `openspec init`/`openspec update` 生成，不在本仓库里，通过 `Skill` 工具按名调用，不是相对路径引用），把 `tasks.md` 里的 `- [ ]` 逐条变成真实代码/文档产出。`tasks.md` 中（不限于末尾，验证类任务在实践中可能散落在功能任务附近，只有最终的"跑全量验证命令"收尾任务通常在末尾）按 `openspec/config.yaml` 规则本就要求包含真实的验证类任务，具体是什么验证命令由该 change 自己的 `tasks.md` 决定，这些验证命令本身就是 tasks.md 的一部分，会在这一步被 `openspec-apply-change` 自然执行到——**不需要在它之外再单独安排一轮"门禁验证"**。
-- **第三步的一次性代码 review 审查的是第二步实际产出的代码**——正确性、spec 符合度、安全与健壮性、测试质量四个角度并行 review 一次，修复 agent 修一次 blocker/major（改代码和测试、不改 spec 文档、不 commit），修完跑一次构建+测试，不做第二轮 review。它和第一步是两回事：第一步回答"文档写得对不对"，这一步回答"代码写得对不对"。**代码 review 永远不会让流程停下来**：没解决的问题都记成已知缺口写进 commit message 和 `ROADMAP.md`，然后照常进入第四步 `openspec validate` + archive、第五步提交——这套 skill 的目的是让人不用守在执行过程里，review 的结果留给人事后看。
+- **第三步的一次性代码 review 审查的是第二步实际产出的代码**——正确性、spec 符合度、安全与健壮性、测试质量四个角度并行 review 一次，修复 agent 修一次 blocker/major（改代码和测试、不改 spec 文档、不 commit），修完跑一次构建+测试，不做第二轮 review。它和第一步是两回事：第一步回答"文档写得对不对"，这一步回答"代码写得对不对"。**代码 review 永远不会让流程停下来**：没解决的问题都记成已知缺口写进 commit message 和 `<ROADMAP>`，然后照常进入第四步 `openspec validate` + archive、第五步提交——这套 skill 的目的是让人不用守在执行过程里，review 的结果留给人事后看。
+
+本 skill 里的 `<ROADMAP>` 指调用方指定的 roadmap 文件（默认 `openspec/changes/ROADMAP.md`；一个项目可以有多条线、每条线一个文件）；调用方没传路径时：在 `openspec/changes/ROADMAP*.md` 里找列着这个 change 名的文件，只有一个命中就用它；多个命中或没有命中就问用户；用户说没有 roadmap 文件，或指定的文件不存在时，不要凭空新建，跳过对「阻塞中」小节的读取和收尾的日志追加，并在汇报里说明。
 
 ## 什么时候才能调用这个 skill
 
@@ -22,13 +24,13 @@ allowed-tools: Bash, Read, Edit, Grep, Glob, Skill, Workflow, AskUserQuestion
 
 **不要**仅凭以下这类间接信号就自行判断要调用本 skill：
 
-- 用户只是在讨论、查看、编辑 `ROADMAP.md`、`openspec/changes/` 目录，或某个 change 的文档内容；
+- 用户只是在讨论、查看、编辑 `<ROADMAP>`、`openspec/changes/` 目录，或某个 change 的文档内容；
 - 用户要求"更新 ROADMAP""重写某个文档""看看这个 change 写了什么"之类与 spec 相关、但并不等于"执行完整生命周期"的任务；
 - 通用的"只要有一点可能适用就该用 skill"的默认倾向（参见 `using-superpowers`）**不适用于本 skill**——这是一个会自动跑多轮多 agent workflow、修改代码、真实执行 `git commit` 的高开销、有副作用的操作，必须由用户主动、明确触发，AI 不能自己推断"现在该跑这个了"。
 
 不确定用户是不是这个意思时，先用 `AskUserQuestion` 确认，不要直接开始跑。
 
-**核心原则：一次只做一个 change，做完停下来，不自动连续推进到下一个。** 每个 change 走完 archive+commit 之后，向用户报告结果并等待下一步指示，不要自己接着挑下一个开始。**如果用户要求的是连续做完多个甚至全部待办 change 这种批量场景，那不是本 skill 的职责，改用上层编排 skill [`yueban-spec-roadmap-flow`](../yueban-spec-roadmap-flow/SKILL.md)**——批量场景下由那个 skill 负责挑选顺序、逐个把具体 change 名传给本 skill，以及每个 change 完成后的清单维护；不要在本 skill 里自己实现"连续做完"的循环，也不要在本 skill 里读写任何待办清单（这里的"待办清单"specifically 指 `ROADMAP.md` 的「有依赖关系」「无强依赖」「阻塞中」三个待办小节——唯一的例外是「前置检查」里对「阻塞中」的只读检查；本 skill 收尾阶段仍会追加内容到 `ROADMAP.md` 的「已解决的问题」/「无法自主解决的问题」/「经验总结」三个日志小节，见下方「收尾」一节；两者不冲突，日志追加不算"待办清单读写"）。
+**核心原则：一次只做一个 change，做完停下来，不自动连续推进到下一个。** 每个 change 走完 archive+commit 之后，向用户报告结果并等待下一步指示，不要自己接着挑下一个开始。**如果用户要求的是连续做完多个甚至全部待办 change 这种批量场景，那不是本 skill 的职责，改用上层编排 skill [`yueban-spec-roadmap-flow`](../yueban-spec-roadmap-flow/SKILL.md)**——批量场景下由那个 skill 负责挑选顺序、逐个把具体 change 名传给本 skill，以及每个 change 完成后的清单维护；不要在本 skill 里自己实现"连续做完"的循环，也不要在本 skill 里读写任何待办清单（这里的"待办清单"specifically 指 `<ROADMAP>` 的「有依赖关系」「无强依赖」「阻塞中」三个待办小节——唯一的例外是「前置检查」里对「阻塞中」的只读检查；本 skill 收尾阶段仍会追加内容到 `<ROADMAP>` 的「已解决的问题」/「无法自主解决的问题」/「经验总结」三个日志小节，见下方「收尾」一节；两者不冲突，日志追加不算"待办清单读写"）。
 
 ## 什么时候不适合用这个 skill
 
@@ -40,15 +42,15 @@ allowed-tools: Bash, Read, Edit, Grep, Glob, Skill, Workflow, AskUserQuestion
 
 这是和上面"正常走完流程"完全不同的另一条路径——**不要**套用第四步的 `openspec archive`/手动 mv 流程，那是给"做完了"的 change 用的。用户中途决定"这个 change 不做了/方案作废"时：
 
-1. 先跟用户确认清楚这是真的放弃（不是"先搁置一下，以后可能还做"）——只有明确放弃才走下面的步骤，搁置的话什么都不用动，change 留在原地就行。如果搁置是因为外部前置条件还不具备（方案本身不变），提醒用户/调用方把它在 `ROADMAP.md` 里移到「阻塞中」小节，并写明解除条件和原位置（格式见 [`roadmap-template.md`](../yueban-spec-roadmap-flow/roadmap-template.md)）——同样不是本 skill 的职责。
+1. 先跟用户确认清楚这是真的放弃（不是"先搁置一下，以后可能还做"）——只有明确放弃才走下面的步骤，搁置的话什么都不用动，change 留在原地就行。如果搁置是因为外部前置条件还不具备（方案本身不变），提醒用户/调用方把它在 `<ROADMAP>` 里移到「阻塞中」小节，并写明解除条件和原位置（格式见 [`roadmap-template.md`](../yueban-spec-roadmap-flow/roadmap-template.md)）——同样不是本 skill 的职责。
 2. 把 change 目录整个移到 `openspec/changes/archive/`，但用 `$(date +%Y-%m-%d)-abandoned-<change-name>` 命名（注意多了 `abandoned-` 前缀），跟正常完成的 `YYYY-MM-DD-<change-name>` 区分开，避免以后有人误以为它是"做完了"的记录。**不需要**跑 `openspec archive` CLI（那条命令会尝试同步 delta spec 到 `openspec/specs/`，而放弃的 change 从未真正实施，没有 spec 需要同步）。
-3. 如果这个 change 在某份待办清单（如 `ROADMAP.md`）里有对应条目，提醒用户/调用方去处理（从待办小节删除、按需记录放弃原因）——**这不是本 skill 的职责**，本 skill 不读写任何待办清单，清单维护统一由调用方自己或 [`yueban-spec-roadmap-flow`](../yueban-spec-roadmap-flow/SKILL.md) 负责。
+3. 如果这个 change 在某份待办清单（如 `<ROADMAP>`）里有对应条目，提醒用户/调用方去处理（从待办小节删除、按需记录放弃原因）——**这不是本 skill 的职责**，本 skill 不读写任何待办清单，清单维护统一由调用方自己或 [`yueban-spec-roadmap-flow`](../yueban-spec-roadmap-flow/SKILL.md) 负责。
 4. 如果已经产生了任何代码改动（哪怕只是校验循环里的中间修复），先跟用户确认要不要连同 revert，不要留下"半成品代码还在但待办清单里的记录已经不一致"这种断层状态。
 5. 正常走 `git add`/`git commit` 提交这些文档改动即可（同样不自动 push），跟第五步的收尾方式一致。
 
 ## 输入
 
-**change 名称，必须由调用方显式指定**——本 skill 不读任何待办清单（如 `ROADMAP.md`）来自己挑选要处理哪个 change，也不关心该清单的顺序/依赖结构。如果用户没有明确说要处理哪一个，先用 `AskUserQuestion` 或直接提问确认具体的 change 名称，不要自行读取其他文档代为决定。"按顺序挑一个 pending change 来做"或"连续做完剩下所有的"这类需要读待办清单来批量挑选的场景，由上层编排 skill [`yueban-spec-roadmap-flow`](../yueban-spec-roadmap-flow/SKILL.md) 负责选出具体 change 名后再调用本 skill。
+**change 名称，必须由调用方显式指定**——本 skill 不读任何待办清单（如 `<ROADMAP>`）来自己挑选要处理哪个 change，也不关心该清单的顺序/依赖结构。如果用户没有明确说要处理哪一个，先用 `AskUserQuestion` 或直接提问确认具体的 change 名称，不要自行读取其他文档代为决定。"按顺序挑一个 pending change 来做"或"连续做完剩下所有的"这类需要读待办清单来批量挑选的场景，由上层编排 skill [`yueban-spec-roadmap-flow`](../yueban-spec-roadmap-flow/SKILL.md) 负责选出具体 change 名后再调用本 skill。
 
 ## 前置检查
 
@@ -58,7 +60,7 @@ allowed-tools: Bash, Read, Edit, Grep, Glob, Skill, Workflow, AskUserQuestion
 - `git symbolic-ref -q --short HEAD` 有输出，即当前在某个分支上。detached HEAD（新建的 git worktree、`git submodule update` 之后的 submodule 常见）时停下来问用户切到或新建哪个分支，不要在 detached HEAD 上开工和提交。
 - `git status --short` 确认工作区干净，`git fetch origin <base-branch>` 确认本地与远端同步，避免在过期代码上开工（`<base-branch>` 是当前分支所在项目的默认/基线分支，以该项目实际使用的名字为准，不要写死；不确定就先 `git symbolic-ref refs/remotes/origin/HEAD` 或直接问用户）。
 - 如果发现远端有本次会话不知情的新提交（尤其是大规模重构、或删除了 `openspec/` 下的目录），先向用户说明情况，不要在不确定的地基上继续；用户明确说"不用管，直接拉最新代码"就照做，不要反复追问。
-- 如果 `openspec/changes/ROADMAP.md` 存在、且要处理的 change 列在「阻塞中」小节里：先向用户说明它的阻塞原因与解除条件，确认条件已经满足再开始；用户确认前不进入第一步。这是本 skill 对待办小节唯一的读取，只读不改——把它移回待办小节由用户或 [`yueban-spec-roadmap-flow`](../yueban-spec-roadmap-flow/SKILL.md) 处理，本 skill 在收尾汇报里提醒即可。
+- 如果调用方指定的 roadmap 文件（默认 `openspec/changes/ROADMAP.md`）存在、且要处理的 change 列在它的「阻塞中」小节里：先向用户说明它的阻塞原因与解除条件，确认条件已经满足再开始；用户确认前不进入第一步。这是本 skill 对待办小节唯一的读取，只读不改——把它移回待办小节由用户或 [`yueban-spec-roadmap-flow`](../yueban-spec-roadmap-flow/SKILL.md) 处理，本 skill 在收尾汇报里提醒即可。
 - 确认要处理的 change 目录下 `proposal.md`/`design.md`/`tasks.md`/`specs/**/*.md` 齐全（`openspec status --change "<name>" --json` 可以查 `isComplete`）。
 
 ## 第一步：多轮校验循环（Workflow 工具）——只审查 spec 文档本身
@@ -137,8 +139,8 @@ round 1 全量评审的 4 个角度：
 
 | 字段 | 写到哪里 |
 |---|---|
-| `records.knownGaps`（没处理/修不了的 blocker/major、构建/测试仍未通过或结果未知、没拿到结果的评审角度） | commit message 的 "Known gaps" 段、`ROADMAP.md`「无法自主解决的问题」，汇报时放在最前面；非空时 commit 标题行末尾加 ` [known gaps]` |
-| `records.fixed`（已修，未经复核） | commit message、`ROADMAP.md`「已解决的问题」 |
+| `records.knownGaps`（没处理/修不了的 blocker/major、构建/测试仍未通过或结果未知、没拿到结果的评审角度） | commit message 的 "Known gaps" 段、`<ROADMAP>`「无法自主解决的问题」，汇报时放在最前面；非空时 commit 标题行末尾加 ` [known gaps]` |
+| `records.fixed`（已修，未经复核） | commit message、`<ROADMAP>`「已解决的问题」 |
 | `records.disputed`（被驳回的误报及理由） | commit message，留给人复查驳回是否站得住 |
 | `records.minors`（未修的 minor） | 只写进 commit message |
 
@@ -200,7 +202,7 @@ EOF
 
 ## 收尾
 
-**第五步提交之前**，先把这一轮真实发生的发现追加进 `openspec/changes/ROADMAP.md`（结构参照 [`roadmap-template.md`](../yueban-spec-roadmap-flow/roadmap-template.md)）的日志小节，随第五步 `git add -A` 一起提交，不需要额外单独提交：
+**第五步提交之前**，先把这一轮真实发生的发现追加进调用方指定的 roadmap 文件（默认 `openspec/changes/ROADMAP.md`；结构参照 [`roadmap-template.md`](../yueban-spec-roadmap-flow/roadmap-template.md)）的日志小节，随第五步 `git add -A` 一起提交，不需要额外单独提交：
 
 - **「已解决的问题」**：追加一行 `- YYYY-MM-DD [change-name] <描述>`，内容是第一步 4 个评审角度实际发现并修复了什么（尤其是纠正了立项假设、补齐了测试断言这类真实发现），以及第三步返回的 `records.fixed`（每行前面加上 `- YYYY-MM-DD ` 原样追加，不要改写）。
 - **「无法自主解决的问题」**：如果这一轮曾经用 `AskUserQuestion` 停下来问用户（Open Questions 未定案、修复方案有分歧等），追加一行 `- YYYY-MM-DD [change-name] <问了什么、用户答复是什么>`——即使当场就解决了，也要记录这个决策点，不因为"已解决"就略过。第三步返回的 `records.knownGaps` 非空时，把每一行前面加上 `- YYYY-MM-DD ` 原样追加到这里，不要改写措辞。
@@ -208,7 +210,7 @@ EOF
 
 **这是对上面"本 skill 不读写任何待办清单"这条原则的限定例外**：只追加这三个日志小节，不触碰「有依赖关系」「无强依赖」「阻塞中」这三个由 `yueban-spec-roadmap-flow` 独占维护的待办小节本身——这三个小节的增删仍然完全不是本 skill 的职责。
 
-日志追加完成后，向用户报告：第一步的轮次数与是否收敛、真实发现的问题、第二步实施/验证结果、第三步代码 review 的结果（`records.knownGaps` 放在汇报最前面单独列出；已修、被驳回的问题也列出来供人复查；review 期间如果多出了 agent 违规的提交，也列出来）、archive 后的 commit hash，并提醒改动**只提交到了当前分支，尚未推送**，是否推送、推到哪里由用户自己决定。如果这个 change 在 `ROADMAP.md` 的「有依赖关系」「无强依赖」「阻塞中」待办小节里有对应条目，提醒用户/调用方去处理（在「阻塞中」的，说明它是在前置检查确认解除条件后才推进的）——这三个小节的维护仍然不是本 skill 的职责。
+日志追加完成后，向用户报告：第一步的轮次数与是否收敛、真实发现的问题、第二步实施/验证结果、第三步代码 review 的结果（`records.knownGaps` 放在汇报最前面单独列出；已修、被驳回的问题也列出来供人复查；review 期间如果多出了 agent 违规的提交，也列出来）、archive 后的 commit hash，并提醒改动**只提交到了当前分支，尚未推送**，是否推送、推到哪里由用户自己决定。如果这个 change 在 `<ROADMAP>` 的「有依赖关系」「无强依赖」「阻塞中」待办小节里有对应条目，提醒用户/调用方去处理（在「阻塞中」的，说明它是在前置检查确认解除条件后才推进的）——这三个小节的维护仍然不是本 skill 的职责。
 
 然后**停下来**，问是否继续下一个 change——不要自己接着往下做。**例外**：如果本次是被 [`yueban-spec-roadmap-flow`](../yueban-spec-roadmap-flow/SKILL.md) 通过 `Skill` 工具调用的（批量推进场景），不要在这里停下来问用户——按上一段完成汇报后，直接把控制权交还给调用方，由它按自己第 6 步的规则决定是否继续下一个 change；这条"停下来问"的默认限制只在**被用户直接触发**时生效。
 

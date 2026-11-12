@@ -1,6 +1,6 @@
 ---
 name: yueban-spec-simple-roadmap-flow
-description: 'Run every pending change in openspec/changes/ROADMAP.md through yueban-spec-simple-single-change-flow (commits, no push). Only when the user names this skill or asks for the lightweight flow.'
+description: 'Run every pending change in the roadmap file (default openspec/changes/ROADMAP.md, or the ROADMAP-<line>.md the user names) through yueban-spec-simple-single-change-flow (commits, no push). Only when the user names this skill or asks for the lightweight flow.'
 license: MIT
 compatibility: Requires the openspec CLI (on PATH), git, and the yueban-spec-simple-single-change-flow skill. No Workflow tool needed.
 allowed-tools: Bash, Read, Edit, Write, Grep, Glob, Skill, AskUserQuestion
@@ -8,13 +8,17 @@ allowed-tools: Bash, Read, Edit, Write, Grep, Glob, Skill, AskUserQuestion
 
 # OpenSpec ROADMAP 轻量批量推进
 
+## Roadmap 文件
+
+本 skill 里的 `<ROADMAP>` 指待办清单文件，默认是 `openspec/changes/ROADMAP.md`。一个项目可以有多条并行的线，每条线各用一个 roadmap 文件（如 `openspec/changes/ROADMAP-<线名>.md`）。选哪个文件：用户点名了哪个就用哪个。没点名时看 `openspec/changes/` 下的 `ROADMAP*.md`：恰好只有一个（不管叫什么）就用它；有两个及以上（包括默认文件加上别的线的文件），先列出来问用户跑哪一个，不要自己挑，也不要因为默认文件存在就直接用它；一个都没有按下文「文件不存在」处理。写命令时把 `<ROADMAP>` 换成实际路径，不要把尖括号原样写进命令；读、改、`git add`、提交和持锁更新都只针对这一个文件，不碰别的 roadmap 文件。
+
 ## 何时使用与边界
 
-轻量版 ROADMAP 批量推进：按 openspec/changes/ROADMAP.md 的顺序，逐个用 yueban-spec-simple-single-change-flow 把所有待办 change 做完。只有当用户用自己的话明确点名本 skill，或明确要求用"轻量/简单流程"把 ROADMAP 剩下的 change 全部跑完时才调用。不要从一般性 OpenSpec 讨论、提到 ROADMAP.md、或只处理单个 change 的请求里推断适用；它会连续改代码并反复 commit（不 push）。分不清要的是本 skill 还是重版 yueban-spec-roadmap-flow 时，先问。
+轻量版 ROADMAP 批量推进：按 <ROADMAP> 的顺序，逐个用 yueban-spec-simple-single-change-flow 把所有待办 change 做完。只有当用户用自己的话明确点名本 skill，或明确要求用"轻量/简单流程"把 ROADMAP 剩下的 change 全部跑完时才调用。不要从一般性 OpenSpec 讨论、提到 roadmap 文件、或只处理单个 change 的请求里推断适用；它会连续改代码并反复 commit（不 push）。分不清要的是本 skill 还是重版 yueban-spec-roadmap-flow 时，先问。
 
-按 `openspec/changes/ROADMAP.md` 的顺序，把待办 change 一个一个交给 [`yueban-spec-simple-single-change-flow`](../yueban-spec-simple-single-change-flow/SKILL.md) 做完。本 skill 只负责**挑顺序**和**维护待办清单**，每个 change 具体怎么做全在那个 skill 里。
+按 `<ROADMAP>` 的顺序，把待办 change 一个一个交给 [`yueban-spec-simple-single-change-flow`](../yueban-spec-simple-single-change-flow/SKILL.md) 做完。本 skill 只负责**挑顺序**和**维护待办清单**，每个 change 具体怎么做全在那个 skill 里。
 
-## ROADMAP.md 结构
+## roadmap 文件结构
 
 完整结构见 [`roadmap-template.md`](roadmap-template.md)。本 skill 读写这三个待办小节（和重版 `yueban-spec-roadmap-flow` 用的格式兼容）：
 
@@ -29,12 +33,12 @@ allowed-tools: Bash, Read, Edit, Write, Grep, Glob, Skill, AskUserQuestion
 ## 流程
 
 1. `command -v openspec`；`git symbolic-ref -q --short HEAD` 有输出（detached HEAD 时先问用户切到哪个分支）；`git status --short` 为空（不干净先问用户）。
-2. 读 `ROADMAP.md`，**轻量核实**一下顺序描述是否还符合代码现状：
+2. 读 `<ROADMAP>`，**轻量核实**一下顺序描述是否还符合代码现状：
    - 某条其实已在代码里**全部**实现：直接从待办小节删掉，单独提交，继续。
    - 只**部分**实现：停下来问用户怎么处理。
    - 「阻塞中」的条目看一眼解除条件是否已满足，满足的**先问用户**要不要移回原位置，同意后移回并单独提交。
 3. 先按顺序处理「有依赖关系」，再串行处理「无强依赖」。每个 change 通过 `Skill` 调用 `yueban-spec-simple-single-change-flow`，**显式传入 change 名**。一次只做一个，不并行。
-4. 每个 change 提交后，从对应待办小节删掉它的条目，**单独提交**（只 `git add` 这份 `ROADMAP.md`）——不提交的话，下一个 change 的"工作区干净"检查会被挡住。子流程留下没暂存的 submodule 指针变化不算不干净，汇总到收尾里报给用户。
+4. 每个 change 提交后，从对应待办小节删掉它的条目，**单独提交**（只 `git add` 这份 `<ROADMAP>`）——不提交的话，下一个 change 的"工作区干净"检查会被挡住。子流程留下没暂存的 submodule 指针变化不算不干净，汇总到收尾里报给用户。
 5. 向用户简短汇报一句（刚完成的 change、commit hash、有没有已知缺口、还剩几个），**然后直接继续下一个**，不等确认。
 6. 两个待办小节都清空就结束。
 

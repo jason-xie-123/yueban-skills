@@ -10,15 +10,15 @@ allowed-tools: Bash, Read, Edit, Write, Grep, Glob, Skill, Agent, AskUserQuestio
 
 ## 何时使用与边界
 
-轻量版单 change 流程：review 整个 spec → 修掉问题 → apply → review 本地改动的代码 → archive → commit（不 push）。只有当用户用自己的话明确点名本 skill，或明确要求用"轻量/简单流程"推进某一个 OpenSpec change 时才调用。不要从一般性 OpenSpec 讨论、提到 ROADMAP.md 或 openspec/changes/ 推断适用；它会改代码并真实 commit。用户说"推进下一个 spec"这类话、分不清要的是本 skill 还是重版 yueban-spec-single-change-flow 时，先问。
+轻量版单 change 流程：review 整个 spec → 修掉问题 → apply → review 本地改动的代码 → archive → commit（不 push）。只有当用户用自己的话明确点名本 skill，或明确要求用"轻量/简单流程"推进某一个 OpenSpec change 时才调用。不要从一般性 OpenSpec 讨论、提到 roadmap 文件 或 openspec/changes/ 推断适用；它会改代码并真实 commit。用户说"推进下一个 spec"这类话、分不清要的是本 skill 还是重版 yueban-spec-single-change-flow 时，先问。
 
 把一个 pending change 从 spec 推到提交：**review spec → 修 → apply → review 代码 → archive → commit**。各步之间不停下来等确认，一口气做完。
 
-和重版 `yueban-spec-single-change-flow` 的区别：不跑多轮多 agent workflow，spec 和代码各 review 一遍、修一遍就往下走，不写 `ROADMAP.md` 日志小节。适合前中期、spec 规模不大的项目。
+和重版 `yueban-spec-single-change-flow` 的区别：不跑多轮多 agent workflow，spec 和代码各 review 一遍、修一遍就往下走，不写 roadmap 文件的日志小节。适合前中期、spec 规模不大的项目。
 
 ## 输入
 
-change 名必须明确。用户没说是哪一个，先问，不要自己去 `ROADMAP.md` 里挑（按顺序挑是 [`yueban-spec-simple-roadmap-flow`](../yueban-spec-simple-roadmap-flow/SKILL.md) 的事）。
+change 名必须明确。用户没说是哪一个，先问，不要自己去 roadmap 文件里挑（按顺序挑是 [`yueban-spec-simple-roadmap-flow`](../yueban-spec-simple-roadmap-flow/SKILL.md) 的事）。
 
 ## 前置检查
 

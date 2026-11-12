@@ -11,7 +11,7 @@
 // fix — the independent build+test rerun is the only check on it (the fix agent's own claim
 // about the build is never trusted), and fixes are recorded as "unreviewed". Whatever
 // is left — unhandled issues, a failing build, a review angle that returned nothing — goes
-// into `records`, which the caller copies verbatim into the commit message and ROADMAP.md for
+// into `records`, which the caller copies verbatim into the commit message and the roadmap file for
 // a human to look at later. The point of the skill is to keep a human out of the loop during
 // long runs; a multi-round review→fix loop with stop conditions was tried and dropped for
 // that reason.
@@ -33,7 +33,7 @@
 // Records are built by this script from the reviewers' own issue text and the fix agent's
 // per-issue status, so the traceable record is produced deterministically instead of being
 // paraphrased by a model. Every record is a single line (newlines collapsed, long text
-// truncated) so it can be appended to ROADMAP.md's one-line-per-entry logs as-is.
+// truncated) so it can be appended to the roadmap file's one-line-per-entry logs as-is.
 //
 // HOW TO USE: Read this file's text, replace every occurrence of CHANGE_NAME_PLACEHOLDER
 // (meta.name and `const CHANGE = '...'`) with the literal change name and REVIEW_BASE_PLACEHOLDER
@@ -44,7 +44,7 @@
 
 export const meta = {
   name: 'code-review-CHANGE_NAME_PLACEHOLDER',
-  description: '单个 openspec change 实施完成后、提交之前的一次性代码 review：并行跑 4 个只读评审角度（正确性、spec 符合度、安全与健壮性、测试质量）和一次构建+测试；一个修复 agent 修一次 blocker/major 并逐条报告处理结果；修完由独立 agent 再跑一次构建+测试（修坏了给一次针对性修复），不再做第二轮 review。不管结果如何都不阻塞，剩下的问题由脚本生成留痕文本交给调用方写进 commit message 和 ROADMAP.md。minor 只记录不修。不 commit，不改 proposal/design/specs 文档。',
+  description: '单个 openspec change 实施完成后、提交之前的一次性代码 review：并行跑 4 个只读评审角度（正确性、spec 符合度、安全与健壮性、测试质量）和一次构建+测试；一个修复 agent 修一次 blocker/major 并逐条报告处理结果；修完由独立 agent 再跑一次构建+测试（修坏了给一次针对性修复），不再做第二轮 review。不管结果如何都不阻塞，剩下的问题由脚本生成留痕文本交给调用方写进 commit message 和 roadmap 文件。minor 只记录不修。不 commit，不改 proposal/design/specs 文档。',
   phases: [{ title: 'Review' }, { title: 'Fix' }],
 }
 
@@ -139,7 +139,7 @@ const READ_ONLY = '严格只读，不要修改任何文件，也不要 git commi
 // 评审 agent 只做静态审查：构建+测试由单独的 agent 同时在跑，并发再跑一遍会抢端口/构建目录，制造假失败。
 const NO_BUILD_FOR_REVIEWERS = '不要运行构建、测试或任何会写构建目录/占端口的命令（另有 agent 正在同时跑构建+测试，并发运行会互相干扰），只读代码做静态审查。'
 
-// 留痕里的每一条都必须是单行：压掉换行、截断过长内容，才能原样追加进 ROADMAP.md 一行一条的日志。
+// 留痕里的每一条都必须是单行：压掉换行、截断过长内容，才能原样追加进 roadmap 文件、一行一条的日志。
 function oneLine(text, max = 300) {
   const flat = String(text == null ? '' : text).replace(/\s*\n\s*/g, ' ⏎ ').trim()
   return flat.length > max ? `${flat.slice(0, max)}…（已截断）` : flat
@@ -255,7 +255,7 @@ if (toFix.length > 0) {
   }
 }
 
-// ---- 留痕：由脚本确定性生成，调用方原样写进 commit message / ROADMAP.md ----
+// ---- 留痕：由脚本确定性生成，调用方原样写进 commit message / roadmap 文件 ----
 const statusByIndex = new Map()
 for (const r of (fixResult && fixResult.results) || []) {
   if (!statusByIndex.has(r.issueIndex)) statusByIndex.set(r.issueIndex, r)
@@ -279,13 +279,13 @@ const knownGaps = [
 ]
 
 const records = {
-  // 非空 → commit 标题行末尾加 ` [known gaps]`，原样写进 commit message 和 ROADMAP.md「无法自主解决的问题」。
+  // 非空 → commit 标题行末尾加 ` [known gaps]`，原样写进 commit message 和 roadmap 文件「无法自主解决的问题」。
   knownGaps,
-  // 原样写进 commit message 和 ROADMAP.md「已解决的问题」。只修了一次、没有再 review 确认，所以标明"未经复核"。
+  // 原样写进 commit message 和 roadmap 文件「已解决的问题」。只修了一次、没有再 review 确认，所以标明"未经复核"。
   fixed: fixed.map((it) => `[${CHANGE}] 代码 review 已修（未经复核）${it.severity}：${issueRecordText(it)} —— ${oneLine(it.note)}`),
   // 原样写进 commit message，留给人复查驳回是否站得住。
   disputed: disputed.map((it) => `[${CHANGE}] 代码 review 驳回 ${it.severity}：${issueRecordText(it)} —— 理由：${oneLine(it.note)}`),
-  // 只写进 commit message，不修也不进 ROADMAP.md。
+  // 只写进 commit message，不修也不进 roadmap 文件。
   minors: minors.map((it) => `[${CHANGE}] 代码 review minor（未修）：${issueRecordText(it)}`),
 }
 

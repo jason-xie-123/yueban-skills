@@ -24,7 +24,7 @@ allowed-tools: Bash, Read, Edit, Write, Grep, Glob, Skill, Agent, AskUserQuestio
 
 ## 输入
 
-- change 名必须明确。用户没说是哪一个，先问，不要自己去 `ROADMAP.md` 里挑。
+- change 名必须明确。用户没说是哪一个，先问，不要自己去 roadmap 文件里挑。
 - 基线分支：默认是调用时所在的分支；用户另有指定，或作为 subagent 被派出时（派活方会给出基线），一律显式传 `--base <branch>`。
 
 ## 脚本
@@ -39,7 +39,7 @@ worktree 的创建、落回、清理都封装在 [`scripts/wt.sh`](scripts/wt.sh
 <WT> cleanup <change>                   # 在 worktree 外跑：先跑 teardown 钩子（worktree 目录已不在时跳过），再删 worktree 和 spec/<change> 分支（含 submodule 里的）
 <WT> landed <change> [--base <branch>]  # 只读：这个 change 是否已在基线上 archive，输出 LANDED=yes / no / unknown
 <WT> status                             # 只读：所有 spec/* 分支及其 worktree 的状态、锁的持有者
-<WT> lock / <WT> unlock <token>         # 手动拿/放落回锁（roadmap 流程改 ROADMAP.md 时用）
+<WT> lock / <WT> unlock <token>         # 手动拿/放落回锁（roadmap 流程改 roadmap 文件时用）
 ```
 
 `start` 输出的 `STATE=`：
@@ -100,7 +100,7 @@ cd "<WORKTREE>/<submodule>" && [ "$(git symbolic-ref -q --short HEAD)" = "spec/<
   - 然后和下面 NEEDS_REBASE 一样重跑构建+测试、再 `integrate`。父仓库不需要 merge（`SYNC_REPO=` 里没有 `.`）时，只记录指针即可。
 - 退出码 `3` 且输出 `SYNC=rebase`（NEEDS_REBASE）：别的 change 先落回了。rebase 后 `SUBMODULE_ON_BRANCH` 里的 submodule 可能落后于父仓库记录的提交，`integrate` 会自动 fast-forward 它们，不要 `git add` 记录旧指针。输出里的 `INCOMING_PATHS` 是基线新增改动涉及的文件。`git rebase refs/heads/<BASE>`（写全 `refs/heads/`，基线有同名 tag 时 `git rebase <BASE>` 会 rebase 到 tag 上，永远落不回）；仓库有 `.gitmodules` 且没有 setup 钩子时接着 `git submodule update --init --recursive`。
   - 有冲突就按两边的意图解决（另一个 change 已经 archive 的 spec 在 `openspec/specs/` 下，以它为准合并，不要丢掉对方的改动）。实在解决不了：`git rebase --abort`，停下来问用户（subagent 模式下按 BLOCKED 返回），worktree 原样保留。
-  - rebase 后**重新跑项目的构建+测试**（这个组合没被测过），失败就修，修完提交。例外：`INCOMING_PATHS` 只有 `openspec/` 下的文件（比如 roadmap 流程提交的 `ROADMAP.md`）时不用重跑。
+  - rebase 后**重新跑项目的构建+测试**（这个组合没被测过），失败就修，修完提交。例外：`INCOMING_PATHS` 只有 `openspec/` 下的文件（比如 roadmap 流程提交的 roadmap 文件）时不用重跑。
   - 然后再跑 `integrate`。锁里只做检查和移动基线，rebase 和测试都在锁外，所以并行的 change 多时可能来回几次。**连续 5 次退出码 3**（NEEDS_REBASE 或 NEEDS_MERGE）还落不回：停下来报告（subagent 模式下按 BLOCKED 返回），说明是在和哪些 change 抢。
 - 退出码 `2`：原样报给用户。常见的是：主工作区有未提交的改动（会和 fast-forward 冲突；主工作区的 submodule 有没记录进父仓库的提交也算）；submodule 有未提交的改动、或指针没在父仓库提交；落回会覆盖主工作区里被 ignore 的本地文件（如 `.env`）；分支里混进了属于别的本地分支的提交（被 rebase 到了基线以外的分支上）；基线分支正在别处 rebase；锁被占用太久（消息里有持有者；持有进程已经不在的锁会被自动接管，剩下的是还在跑的进程、手动 `lock` 的锁、没有 owner 的锁，或者消息里说接管卡住了、锁目录删不掉的；确认没有别的流程或工具在落回、改基线，才可以删锁目录和消息里提到的 `.takeover.*` 目录）。
 
