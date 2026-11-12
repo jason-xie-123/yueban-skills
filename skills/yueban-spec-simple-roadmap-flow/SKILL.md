@@ -1,6 +1,6 @@
 ---
 name: yueban-spec-simple-roadmap-flow
-description: 'Run every pending change in the roadmap file (default openspec/changes/ROADMAP.md, or the ROADMAP-<line>.md the user names) through yueban-spec-simple-single-change-flow (commits, no push). Only when the user names this skill or asks for the lightweight flow.'
+description: 'Run every pending change of a roadmap file through yueban-spec-simple-single-change-flow (commits, no push). Only when the user names this skill or asks for the lightweight flow.'
 license: MIT
 compatibility: Requires the openspec CLI (on PATH), git, and the yueban-spec-simple-single-change-flow skill. No Workflow tool needed.
 allowed-tools: Bash, Read, Edit, Write, Grep, Glob, Skill, AskUserQuestion
