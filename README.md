@@ -65,6 +65,7 @@ skills/                  # Externally distributed skills (npx skills' discovery 
 .gemini/skills           # Symlink → ../.agents/skills, makes skills visible to Gemini CLI
 scripts/
   link-skills.sh         # Symlinks each skill under skills/ into .agents/skills/ (for local development)
+  check-skills.py        # Static checks: front matter, relative links, the <ROADMAP> placeholder, bash -n on shell scripts
 ```
 
 ## Adding a new skill
@@ -88,3 +89,4 @@ scripts/link-skills.sh --help     # All options (--force / --prune / --no-gitign
 
 - Symlinks are **not checked in** (the `skills/` source is authoritative; each machine creates its own locally); the script automatically fills in the matching `.gitignore` lines.
 - Restart the agent session after linking for it to discover the new skill.
+- Run `python3 scripts/check-skills.py` after editing a skill: it checks front matter, relative links, the `<ROADMAP>` placeholder and `bash -n` on the shell scripts.
