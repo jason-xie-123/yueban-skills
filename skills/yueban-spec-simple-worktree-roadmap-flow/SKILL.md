@@ -1,6 +1,6 @@
 ---
 name: yueban-spec-simple-worktree-roadmap-flow
-description: 'Run the pending changes of a roadmap file in parallel, each in its own git worktree (commits, no push). Only when the user names this skill or asks to run the roadmap in parallel.'
+description: 'Run a roadmap''s pending changes in parallel, one git worktree each (commits, no push). Only when named or asked to run the roadmap in parallel.'
 license: MIT
 compatibility: Requires the openspec CLI (on PATH), git 2.20+, bash, and the yueban-spec-simple-worktree-single-change-flow and yueban-spec-simple-single-change-flow skills. Parallel runs need background subagents (Claude Code's Agent tool); without them it runs one change at a time. No Workflow tool needed.
 allowed-tools: Bash, Read, Edit, Write, Grep, Glob, Skill, Agent, SendMessage, TaskStop, AskUserQuestion

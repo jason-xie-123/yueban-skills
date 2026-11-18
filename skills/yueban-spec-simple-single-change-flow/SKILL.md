@@ -1,6 +1,6 @@
 ---
 name: yueban-spec-simple-single-change-flow
-description: 'Lightweight flow for one OpenSpec change: review the spec, fix, apply, review the code, archive, commit (no push). Only when the user names this skill or asks for the lightweight flow.'
+description: 'Lightweight flow for one OpenSpec change: review spec, fix, apply, review code, archive, commit (no push). Only when named or the lightweight flow is asked for.'
 license: MIT
 compatibility: Requires the openspec CLI (on PATH), git, and the openspec-apply-change skill (installed by `openspec init`/`openspec update`). No Workflow tool needed; works in any agent client.
 allowed-tools: Bash, Read, Edit, Write, Grep, Glob, Skill, Agent, AskUserQuestion

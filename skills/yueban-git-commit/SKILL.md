@@ -1,6 +1,6 @@
 ---
 name: yueban-git-commit
-description: 'Commit with a Conventional Commits message generated from the diff, with smart staging. Commit only: it never pushes. Use when asked to commit code or on /commit.'
+description: 'Commit with a Conventional Commits message from the diff, with smart staging; never pushes. Use when asked to commit code or on /commit.'
 allowed-tools: Bash
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: yueban-git-feature-branch-flow
-description: 'Manual only (/yueban-git-feature-branch-flow). Feature-branch lifecycle in a repo with submodules: one same-named branch everywhere from a chosen base, sync, submodule-first commits, merge-readiness report, cleanup.'
+description: 'Manual only (/yueban-git-feature-branch-flow). Feature-branch lifecycle across submodules: same-named branch from a base, sync, submodule-first commits, merge readiness, cleanup.'
 disable-model-invocation: true
 allowed-tools: Bash, Skill, AskUserQuestion
 ---

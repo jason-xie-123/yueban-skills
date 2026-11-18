@@ -1,6 +1,6 @@
 ---
 name: yueban-spec-simple-worktree-single-change-flow
-description: 'Run one OpenSpec change through the lightweight flow in its own git worktree, then fast-forward the base branch (no push). Only when the user names this skill or asks for the worktree flow.'
+description: 'Run one OpenSpec change through the lightweight flow in its own worktree, then fast-forward the base (no push). Only when named or the worktree flow is asked for.'
 license: MIT
 compatibility: Requires the openspec CLI (on PATH), git 2.20+, bash, and the yueban-spec-simple-single-change-flow skill. No Workflow tool needed; works in any agent client.
 allowed-tools: Bash, Read, Edit, Write, Grep, Glob, Skill, Agent, AskUserQuestion

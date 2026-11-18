@@ -1,6 +1,6 @@
 ---
 name: yueban-docs-format-conversion
-description: 'Manual only (/yueban-docs-format-conversion). Inventory html/docx/xlsx/pdf files under docs/, decide per file whether to keep it or convert it to md/pdf, convert and verify nothing is lost.'
+description: 'Manual only (/yueban-docs-format-conversion). Convert html/docx/xlsx/pdf files under docs/ to md or pdf where useful, verifying nothing is lost.'
 disable-model-invocation: true
 allowed-tools: Bash, Read, Write, Edit, Grep, Glob, AskUserQuestion
 ---

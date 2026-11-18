@@ -1,6 +1,6 @@
 ---
 name: yueban-git-safe-sync
-description: 'Manual only (/yueban-git-safe-sync). pull, push, merge the base branch or open PRs in a repo with submodules, keeping every submodule on the parent''s branch name (never detached HEAD).'
+description: 'Manual only (/yueban-git-safe-sync). Pull, push, merge the base or open PRs with every submodule on the parent''s branch (never detached HEAD).'
 disable-model-invocation: true
 allowed-tools: Bash
 ---

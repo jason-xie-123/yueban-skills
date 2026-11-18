@@ -1,6 +1,6 @@
 ---
 name: yueban-docs-freshness-audit
-description: 'Manual only (/yueban-docs-freshness-audit). Find and fix stale content in AGENTS.md, README.md and docs: dangling references, contradictions, broken links and commands, duplicates, historical narrative.'
+description: 'Manual only (/yueban-docs-freshness-audit). Find and fix stale content in AGENTS.md, README.md and docs: dangling refs, contradictions, broken links, duplicates, history.'
 disable-model-invocation: true
 allowed-tools: Bash, Read, Edit, Grep, Glob, Agent, WebFetch
 ---

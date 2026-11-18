@@ -1,6 +1,6 @@
 ---
 name: yueban-proj-prune-historical
-description: 'Remove change-history narration ("originally X, later changed to Y", "removed in migration N") from code comments and Markdown across the repo and its submodules. Use when asked to clean up such historical comments.'
+description: 'Remove change-history narration ("originally X, later Y") from code comments and Markdown in the repo and submodules. Use when asked to clean up such comments.'
 allowed-tools: Bash, Read, Edit, Grep, Glob, Agent, AskUserQuestion
 ---
 
