@@ -1,6 +1,7 @@
 ---
 name: yueban-spec-loop
-description: '把一个 Goal 变成一个无人值守、自驱动的 OpenSpec 循环：动态挑选下一个价值最高的 change，进行 propose/plan，实现它，用一个全新的独立 agent 对照 spec 验证并做代码 review，归档它，并判断整个 goal 是否完成——如此重复，直到 DONE 或某个护栏暂停它以供人工审阅。仅限 Claude Code：与内置的 /loop 技能（用于调度）以及 PushNotification（用于提醒）组合使用。只在明确调用时使用——用 "/yueban-spec-loop <目标...>" 启动，用 "/yueban-spec-loop continue" 或裸的 "/yueban-spec-loop" 恢复，用 "/loop /yueban-spec-loop <目标...>" 进行完全无人值守的运行。要求目标项目已经初始化过 OpenSpec（openspec init，默认的 core profile 就够）——本技能不负责为项目引导安装 OpenSpec 本身。**注意：本技能会自动 push 到 origin，无需确认（与本仓库另外两个 spec 流程 skill——yueban-spec-single-change-flow、yueban-spec-roadmap-flow——"只 commit 不 push"的约定不同），因为它是设计给完全无人值守运行的；实现代码经过一次 VERIFY（spec 对照 + 代码 review）和一次修复后，不管是否仍有问题都随归档一起 push——review 从不让循环停下，遗留问题写进 archive 的 commit message 和 Iteration Log 供人事后审阅。不想自动 push 到远端就不要用它。**'
+description: 'Manual only (/yueban-spec-loop <goal>). Claude Code: unattended OpenSpec loop toward a goal (pick, implement, verify, archive); auto-pushes to origin.'
+disable-model-invocation: true
 allowed-tools: Bash, Read, Write, Edit, Skill, Agent, PushNotification
 ---
 
@@ -15,6 +16,7 @@ APPLY → VERIFY →（FAIL 时 FIX 一次）→ ARCHIVE → CHECK_GOAL_DONE，�
 
 ## 适用范围与前提条件
 
+- **只在明确调用时使用**：用 `/yueban-spec-loop <目标...>` 启动，用 `/yueban-spec-loop continue` 或裸的 `/yueban-spec-loop` 恢复，用 `/loop /yueban-spec-loop <目标...>` 完全无人值守地运行。不想自动 push 到远端就不要用它（见下面「自动推送」一条）。
 - **仅限 Claude Code。** 无人值守模式与内置的 `/loop` 技能（自主节奏的
   `ScheduleWakeup`）组合使用；独立验证器使用 `Agent` 工具；护栏使用
   `PushNotification`。这些在 Codex CLI / Gemini CLI 中都没有确定的等价物。

@@ -1,6 +1,6 @@
 ---
 name: yueban-spec-single-change-flow
-description: 只有当用户用自己的话明确、直接要求把本仓库里某一个 pending 的 OpenSpec change 推进到完成时才调用（比如"推进下一个 spec"/"跑一下 spec 流程"/"用 yueban-spec-single-change-flow 跑一下"/直接点名某个 change 要求推进完成）。不要从一般性的 OpenSpec 相关讨论、提到 roadmap 文件或 openspec/changes/、或任何间接/启发式信号里推断要用这个 skill——它会触发多 agent workflow 和真实的 commit（不自动 push），必须由用户主动触发，不能靠 AI 推断。不确定用户是不是这个意思时，先问，不要直接调用。
+description: 'Drive one pending OpenSpec change to done with a multi-agent workflow (commits, no push). Only on an explicit request; never infer it.'
 license: MIT
 compatibility: 'Requires the openspec CLI (on PATH), git, the openspec-apply-change skill at .claude/skills/openspec-apply-change/SKILL.md (installed by `openspec init`/`openspec update`; invoked via the Skill tool, e.g. `Skill({skill: "openspec-apply-change"})` — do not confuse with the built-in opsx:apply skill), the AskUserQuestion tool, and the Workflow tool (multi-agent orchestration).'
 allowed-tools: Bash, Read, Edit, Grep, Glob, Skill, Workflow, AskUserQuestion

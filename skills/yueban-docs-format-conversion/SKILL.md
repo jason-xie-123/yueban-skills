@@ -1,6 +1,6 @@
 ---
 name: yueban-docs-format-conversion
-description: 'Manual only (/yueban-docs-format-conversion). Convert html/docx/xlsx/pdf files under docs/ to md or pdf where useful, verifying nothing is lost.'
+description: 'Manual only (/yueban-docs-format-conversion). Convert html/docx/xlsx/pdf under docs/ to md or pdf without losing content.'
 disable-model-invocation: true
 allowed-tools: Bash, Read, Write, Edit, Grep, Glob, AskUserQuestion
 ---

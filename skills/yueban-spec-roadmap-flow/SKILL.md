@@ -1,6 +1,6 @@
 ---
 name: yueban-spec-roadmap-flow
-description: 只有当用户用自己的话明确要求把本仓库一份 roadmap 文件里整条待办全部推进完成时才调用——不是只处理一个 change，比如"把 ROADMAP 剩下的都跑完"/"连续做完剩下所有的 spec"。不要从一般性 OpenSpec 讨论、提到 roadmap 文件、或要求处理单个 change 的场景里推断适用（单个 change 请用 yueban-spec-single-change-flow）。这是一个持续数小时、高 token 消耗、多 agent、反复 commit（不自动 push）的操作，必须由用户主动触发，不能靠 AI 推断。不确定就先问。
+description: 'Run all pending changes of a roadmap file via yueban-spec-single-change-flow (hours, commits, no push). Only on an explicit request.'
 license: MIT
 compatibility: Requires the openspec CLI (on PATH) and the yueban-spec-single-change-flow skill. This skill itself never calls Workflow directly (see allowed-tools below); yueban-spec-single-change-flow uses Workflow internally when this skill delegates each change to it via the Skill tool.
 allowed-tools: Bash, Read, Edit, Grep, Glob, Skill, AskUserQuestion
